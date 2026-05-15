@@ -21,13 +21,16 @@ app.use('/api/ocr', ocrRouter);  // 添加这行
 
 // AI助教接口
 app.post('/api/ai/ask', async (req, res) => {
-    const { subject, question } = req.body;
+    console.log('收到的请求体:', req.body);
+    const { subject, question, userPreference } = req.body;
+    
+    console.log('【DEBUG】userPreference:', userPreference);
     
     if (!subject || !question) {
         return res.status(400).json({ error: '缺少学科或问题参数' });
     }
 
-    const result = await askAI(subject, question);
+    const result = await askAI(subject, question, { userPreference });
     
     if (result.success) {
         res.json({

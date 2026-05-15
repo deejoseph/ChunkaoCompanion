@@ -26,34 +26,23 @@ function AIAssistant() {
     const [textOcrSavedFile, setTextOcrSavedFile] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     
-    // 监听模型切换事件（来自系统设置）
+    // 监听 localStorage 变化
     useEffect(() => {
-        const handleModelChange = (event) => {
-            console.log('收到模型切换事件:', event.detail?.model);
-
-            // 获取新模型名称
-            const newModelPref = event.detail?.model || localStorage.getItem('ai_model') || 'math_medium';
-            const modelNames = {
-                math_fast: { name: '快速模式 (qwen2-math:1.5b)', tip: '⚡ 适合普通题型，速度最快' },
-                math_medium: { name: '中速模式 (qwen2-math:7b)', tip: '🚀 适合疑难题目，准确率高' },
-                math_balanced: { name: '均衡模式 (qwen2.5-coder:7b)', tip: '🎨 公式排版更稳定，兼顾推理' }
-            };
-
-            const newModel = modelNames[newModelPref] || modelNames.math_medium;
-
-            // 立即显示新模型名称（不等待提问）
-            setCurrentModel(newModel.name);
-            setModelInfo(`使用模型: ${newModel.name} - ${newModel.tip}`);
-
-            // 清空之前的回答
-            setAnswer('');
-
-            // 显示提示
-            alert(`模型已切换为: ${newModel.name}\n下次提问将使用新模型`);
+        const handleStorageChange = (e) => {
+            if (e.key === 'ai_model') {
+                console.log('模型已切换:', e.newValue);
+                // 清空之前的回答和模型显示
+                setAnswer('');
+                setModelInfo('');
+                setCurrentModel('');
+                setModelChanged(true);
+                // 可选：显示提示
+                setTimeout(() => setModelChanged(false), 3000);
+            }
         };
 
-        window.addEventListener('modelPreferenceChanged', handleModelChange);
-        return () => window.removeEventListener('modelPreferenceChanged', handleModelChange);
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
     // 在 UI 中显示提示
@@ -70,17 +59,22 @@ function AIAssistant() {
         </div>
     )}
 
-    // 初始化时显示当前模型
-    useEffect(() => {
-        const currentPref = localStorage.getItem('ai_model') || 'math_medium';
+    // 或者使用自定义事件（更可靠）
+    const refreshModelDisplay = () => {
+        const preference = localStorage.getItem('ai_model') || 'math_balanced';
         const modelNames = {
-            math_fast: { name: '快速模式 (qwen2-math:1.5b)', tip: '⚡ 适合普通题型，速度最快' },
-            math_medium: { name: '中速模式 (qwen2-math:7b)', tip: '🚀 适合疑难题目，准确率高' },
-            math_balanced: { name: '均衡模式 (qwen2.5-coder:7b)', tip: '🎨 公式排版更稳定，兼顾推理' }
+            math_fast: '快速模式 (qwen2-math:1.5b)',
+            math_medium: '中速模式 (qwen2-math:7b)',
+            math_balanced: '均衡模式 (qwen2.5-coder:7b)'
         };
-        const currentModelInfo = modelNames[currentPref] || modelNames.math_medium;
-        setCurrentModel(currentModelInfo.name);
-        setModelInfo(`当前模型: ${currentModelInfo.name} - ${currentModelInfo.tip}`);
+        // 注意：这里只是显示用户选择的偏好，实际使用模型以后端返回为准
+        const display = modelNames[preference] || preference;
+        console.log('当前偏好模型:', display);
+    };
+
+    // 每次打开 AI 助教时刷新
+    useEffect(() => {
+        refreshModelDisplay();
     }, []);
 
     const subjects = [
@@ -196,20 +190,14 @@ function AIAssistant() {
         setCurrentModel('');
 
         const userPreference = {
-            math: localStorage.getItem('ai_model') || 'math_balanced'
+            math: localStorage.getItem('ai_model') || 'math_medium'
         };
-
-        console.log('发送的请求体:', {
-            subject,
-            question,
-            userPreference
-        });
 
         try {
             const response = await axios.post(`${API_BASE}/api/ai/ask`, {
-                subject: subject,
-                question: question,
-                userPreference: userPreference
+                subject,
+                question,
+                userPreference
             });
 
             if (response.data.success) {

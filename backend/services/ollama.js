@@ -35,7 +35,9 @@ function getUserModelPreference(subject, userPreference) {
     }
 
     const preference = userPreference?.math || 'math_medium';
+    console.log('后端接收到的偏好:', preference);  // 添加日志
     const config = MODEL_CONFIGS[preference];
+    console.log('使用的模型配置:', config);  // 添加日志
     return config ? config.model : MODEL_CONFIGS.math_medium.model;
 }
 
@@ -110,12 +112,21 @@ function buildMathPrompt() {
 }
 
 async function askAI(subject, prompt, options = {}) {
+    console.log('收到的 options:', JSON.stringify(options, null, 2));
+    console.log('options.userPreference:', options.userPreference);
+    
     const preference = options.userPreference?.math || 'math_medium';
-    const config = MODEL_CONFIGS[preference] || MODEL_CONFIGS.math_medium;
+    console.log('解析出的 preference:', preference);
+    
+    const config = MODEL_CONFIGS[preference];
+    console.log('对应的 config:', config);
+    
     const modelName = subject === 'math'
-        ? config.model
+        ? (config ? config.model : MODEL_CONFIGS.math_medium.model)
         : (DEFAULT_MODEL_MAP[subject] || DEFAULT_MODEL_MAP.default);
-
+    
+    console.log('最终使用的 modelName:', modelName);
+    // ... 其余代码
     const systemPrompts = {
         math: buildMathPrompt(),
         chinese: `你是一个春考语文助教。要求：
