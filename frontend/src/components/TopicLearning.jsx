@@ -7,6 +7,8 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
     const [score, setScore] = useState(null);
     const [showOcrUpload, setShowOcrUpload] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [ocrResult, setOcrResult] = useState(null);  // 存储OCR识别的公式
+    const [showFormulaInput, setShowFormulaInput] = useState(false);  // 公式输入模式
 
     // 从localStorage读取学习状态
     useEffect(() => {
@@ -38,7 +40,29 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
         alert('已完成学习！可以开始学生版测验了');
     };
 
-    // 处理OCR上传
+    // OCR识别公式
+    const resizeImage = (file) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const scale = 4;
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    canvas.toBlob((blob) => {
+                        resolve(new File([blob], 'formula.png', { type: 'image/png' }));
+                    }, 'image/png');
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+
     const handleOcrUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -49,29 +73,33 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
         formData.append('topicId', topic.id);
 
         try {
-            // TODO: 实现OCR接口，目前模拟随机分数
-            // 临时模拟成绩
-            setTimeout(() => {
-                const mockScore = Math.floor(Math.random() * 30) + 70; // 70-100分
-                setScore(mockScore);
-                
-                const status = JSON.parse(localStorage.getItem(`topic_${topic.id}_status`) || '{}');
-                status.score = mockScore;
-                localStorage.setItem(`topic_${topic.id}_status`, JSON.stringify(status));
-                
-                alert(`成绩：${mockScore}分`);
-                setShowOcrUpload(false);
-                setUploading(false);
-                if (onRefreshProgress) onRefreshProgress();
-            }, 1500);
-            
-            // 正式使用时替换为真实API：
-            // const response = await axios.post('http://localhost:3001/api/ocr/grade', formData);
-            // setScore(response.data.score);
+            const response = await axios.post('http://localhost:3001/api/ocr/recognize', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.data.success) {
+                const latex = response.data.latex;
+                setOcrResult(latex);
+                alert(`识别成功！公式: ${latex}`);
+            } else {
+                alert('识别失败: ' + (response.data.error || '未知错误'));
+            }
         } catch (error) {
             console.error('OCR识别失败:', error);
             alert('识别失败，请重试');
+        } finally {
             setUploading(false);
+            setShowOcrUpload(false);
+        }
+    };
+    
+    // 向AI助教发送公式
+    const sendToAIAssistant = () => {
+        if (ocrResult) {
+            // 触发全局事件，让悬浮AI助教接收公式
+            const event = new CustomEvent('sendToAI', { detail: { text: ocrResult } });
+            window.dispatchEvent(event);
+            alert('已发送到AI助教，请点击右下角AI助教查看');
         }
     };
 
@@ -152,24 +180,150 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
                 
                 {/* 上传答题卡按钮 - 只在学生版显示 */}
                 {!isTeacherMode && (
-                    <button
-                        onClick={() => setShowOcrUpload(!showOcrUpload)}
+                    <>
+                        <button
+                            onClick={() => setShowOcrUpload(!showOcrUpload)}
+                            style={{
+                                padding: '8px 20px',
+                                background: '#fa8c16',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            📸 上传答题卡
+                        </button>
+                        
+                        {/* 公式输入模式按钮 */}
+                        <button
+                            onClick={() => setShowFormulaInput(!showFormulaInput)}
+                            style={{
+                                padding: '8px 20px',
+                                background: showFormulaInput ? '#52c41a' : '#f0f0f0',
+                                color: showFormulaInput ? 'white' : '#333',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            📐 公式输入
+                        </button>
+                    </>
+                )}
+            </div>
+
+            {/* 公式输入区域 */}
+            {showFormulaInput && (
+                <div style={{
+                    marginBottom: '20px',
+                    padding: '20px',
+                    background: '#f0f7ff',
+                    borderRadius: '8px',
+                    border: '1px solid #91d5ff'
+                }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '12px' }}>📐 公式输入</div>
+                    <textarea
+                        id="formulaInput"
+                        placeholder="请输入LaTeX公式，例如：\frac{1}{2} 或 \sqrt{x^2 + y^2}"
+                        rows={3}
                         style={{
-                            padding: '8px 20px',
-                            background: '#fa8c16',
+                            width: '100%',
+                            padding: '10px',
+                            fontSize: '14px',
+                            borderRadius: '4px',
+                            border: '1px solid #ccc',
+                            resize: 'vertical',
+                            boxSizing: 'border-box',
+                            fontFamily: 'monospace'
+                        }}
+                    />
+                    <div style={{ marginTop: '12px', display: 'flex', gap: '10px' }}>
+                        <button
+                            onClick={() => {
+                                const input = document.getElementById('formulaInput');
+                                const latex = input.value.trim();
+                                if (latex) {
+                                    const event = new CustomEvent('sendToAI', { detail: { text: latex } });
+                                    window.dispatchEvent(event);
+                                    alert('已发送到AI助教，请点击右下角AI助教提问');
+                                    input.value = '';
+                                    setShowFormulaInput(false);
+                                } else {
+                                    alert('请输入公式');
+                                }
+                            }}
+                            style={{
+                                padding: '6px 16px',
+                                background: '#1890ff',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            📤 发送到AI助教
+                        </button>
+                        <button
+                            onClick={() => setShowFormulaInput(false)}
+                            style={{
+                                padding: '6px 16px',
+                                background: '#f0f0f0',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            取消
+                        </button>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>
+                        💡 提示：常用公式写法：分数 \frac{分子}{分母}，根号 \sqrt{表达式}，积分 \int_{a}^{b}
+                    </div>
+                </div>
+            )}
+
+            {/* OCR识别结果区域 */}
+            {ocrResult && (
+                <div style={{
+                    marginBottom: '20px',
+                    padding: '15px',
+                    background: '#f6ffed',
+                    borderRadius: '8px',
+                    border: '1px solid #b7eb8f',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '10px'
+                }}>
+                    <div>
+                        <strong>识别结果：</strong>
+                        <code style={{ background: '#f0f0f0', padding: '4px 8px', borderRadius: '4px', marginLeft: '8px' }}>
+                            {ocrResult}
+                        </code>
+                    </div>
+                    <button
+                        onClick={sendToAIAssistant}
+                        style={{
+                            padding: '4px 12px',
+                            background: '#1890ff',
                             color: 'white',
                             border: 'none',
                             borderRadius: '4px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px'
+                            cursor: 'pointer'
                         }}
                     >
-                        📸 上传答题卡
+                        发送到AI助教
                     </button>
-                )}
-            </div>
+                </div>
+            )}
 
             {/* 温馨提示 */}
             <div style={{
@@ -206,7 +360,7 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
                     />
                     {uploading && <div style={{ marginTop: '10px' }}>识别中...</div>}
                     <p style={{ fontSize: '12px', color: '#999', marginTop: '10px' }}>
-                        拍照上传你的答卷，AI自动批改并记录成绩
+                        拍照上传你的答卷，AI自动识别公式
                     </p>
                 </div>
             )}

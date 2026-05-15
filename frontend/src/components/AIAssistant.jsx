@@ -121,7 +121,8 @@ function AIAssistant() {
                     padding: '20px',
                     borderRadius: '8px',
                     marginTop: '20px',
-                    overflow: 'auto'
+                    overflow: 'auto',
+                    textAlign: 'left'  // 添加左对齐
                 }}>
                     <h3>AI回答：</h3>
                     <ReactMarkdown

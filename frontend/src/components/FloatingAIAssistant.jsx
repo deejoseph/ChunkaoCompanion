@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -11,6 +11,18 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
     const [answer, setAnswer] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // 监听来自 TopicLearning 的公式
+    useEffect(() => {
+        const handleSendToAI = (event) => {
+            setIsOpen(true);
+            setQuestion(event.detail.text);
+        };
+        
+        window.addEventListener('sendToAI', handleSendToAI);
+        return () => window.removeEventListener('sendToAI', handleSendToAI);
+    }, []);
+
+    // ... 其余代码保持不变
     const askAI = async () => {
         if (!question.trim()) {
             alert('请输入你的问题');
@@ -73,7 +85,7 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                     position: 'fixed',
                     bottom: '100px',
                     right: '30px',
-                    width: '400px',
+                    width: '450px',
                     maxWidth: 'calc(100vw - 60px)',
                     background: 'white',
                     borderRadius: '12px',
@@ -113,11 +125,27 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                             background: '#f0f0f0',
                             padding: '8px 12px',
                             fontSize: '12px',
-                            color: '#666'
+                            color: '#666',
+                            borderBottom: '1px solid #e8e8e8'
                         }}>
                             当前学习：{currentTopic}
                         </div>
                     )}
+
+                    {/* 公式输入提示 */}
+                    <div style={{
+                        background: '#f5f5f5',
+                        padding: '6px 12px',
+                        fontSize: '11px',
+                        color: '#999',
+                        borderBottom: '1px solid #e8e8e8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}>
+                        <span>💡</span>
+                        <span>数学公式请用 LaTeX 格式输入：分数用 \frac 命令，根号用 \sqrt 命令</span>
+                    </div>
 
                     {/* 输入区域 */}
                     <div style={{ padding: '16px' }}>
@@ -155,23 +183,26 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                         </button>
                     </div>
 
-                    {/* 回答区域 */}
+                    {/* 回答区域 - 带公式渲染 */}
                     {answer && (
-                        <div style={{
-                            borderTop: '1px solid #eee',
-                            padding: '16px',
-                            maxHeight: '400px',
-                            overflow: 'auto',
-                            background: '#fafafa'
-                        }}>
-                            <ReactMarkdown
-                                remarkPlugins={[remarkMath]}
-                                rehypePlugins={[rehypeKatex]}
-                            >
-                                {answer}
-                            </ReactMarkdown>
-                        </div>
-                    )}
+                    <div style={{
+                        borderTop: '1px solid #eee',
+                        padding: '16px',
+                        maxHeight: '400px',
+                        overflow: 'auto',
+                        background: '#fafafa',
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        textAlign: 'left'  // 添加左对齐
+                    }}>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                        >
+                            {answer}
+                        </ReactMarkdown>
+                    </div>                    
+            )}
                 </div>
             )}
         </>
