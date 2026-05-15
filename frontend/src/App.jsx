@@ -327,7 +327,7 @@ function App() {
       background: 'white',
       padding: '24px',
       borderRadius: '12px',
-      width: '450px',
+      width: '500px',
       maxWidth: '90%',
       maxHeight: '80vh',
       overflow: 'auto'
@@ -361,13 +361,14 @@ function App() {
         </p>
       </div>
 
-      {/* AI模型配置 */}
+      {/* AI模型选择 */}
       <div style={{ marginBottom: '20px' }}>
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-          AI模型配置
+          🤖 AI模型选择
         </label>
         <select
-          defaultValue={localStorage.getItem('ai_model') || 'qwen2.5:7b'}
+          id="aiModelSelect"
+          defaultValue={localStorage.getItem('ai_model') || 'math_medium'}
           onChange={(e) => {
             const value = e.target.value;
             window._tempAiModel = value;
@@ -378,18 +379,23 @@ function App() {
             padding: '8px 12px',
             borderRadius: '4px',
             border: '1px solid #ccc',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            fontSize: '14px'
           }}
         >
-          <option value="qwen2.5:7b">qwen2.5:7b（通用）</option>
-          <option value="qwen2.5-coder:7b">qwen2.5-coder:7b（数学增强）</option>
+          <option value="math_fast">⚡ 快速模式 - qwen2-math:1.5b（5-10秒，普通题型）</option>
+          <option value="math_medium">🚀 中速模式 - qwen2-math:7b（20-30秒，疑难题目）</option>
+          <option value="math_balanced">🎨 均衡模式 - qwen2.5-coder:7b（40-60秒，公式美观）</option>
         </select>
+        <p style={{ fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: 0 }}>
+          快速模式：响应快，但公式显示格式可能不完美；美观模式：公式显示更好，适合正式学习
+        </p>
       </div>
 
       {/* 春考日期 */}
       <div style={{ marginBottom: '20px' }}>
         <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-          春考日期
+          📅 春考日期
         </label>
         <input
           type="date"

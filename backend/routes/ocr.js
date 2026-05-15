@@ -27,6 +27,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const ocrModel = req.body.model || 'pix2tex';  // pix2tex 或 llava
+
+if (ocrModel === 'llava') {
+    scriptPath = path.join(__dirname, '../../scripts/ocr_llava.py');
+} else {
+    scriptPath = path.join(__dirname, '../../scripts/ocr_pix2tex.py');
+}
+
 // Python 环境配置
 const pythonPath = 'C:\\Users\\deejo\\anaconda3\\envs\\pixel_ai\\python.exe';
 // 改用 pix2tex 脚本

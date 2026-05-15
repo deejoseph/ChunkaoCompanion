@@ -10,6 +10,10 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
     const [question, setQuestion] = useState('');
     const [answer, setAnswer] = useState('');
     const [loading, setLoading] = useState(false);
+    const [currentModel, setCurrentModel] = useState('');
+    const [showFormulaInput, setShowFormulaInput] = useState(false);
+    const [formulaLatex, setFormulaLatex] = useState('');
+    const [uploading, setUploading] = useState(false);
 
     // 监听来自 TopicLearning 的公式
     useEffect(() => {
@@ -22,7 +26,35 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
         return () => window.removeEventListener('sendToAI', handleSendToAI);
     }, []);
 
-    // ... 其余代码保持不变
+    // 处理OCR上传识别公式
+    const handleFormulaUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        try {
+            const response = await axios.post('http://localhost:3001/api/ocr/recognize', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (response.data.success) {
+                const latex = response.data.latex;
+                setFormulaLatex(latex);
+                setQuestion(prev => prev + (prev ? ' ' : '') + latex);
+                alert('公式已识别并添加到输入框');
+            } else {
+                alert('识别失败：' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('OCR识别失败:', error);
+            alert('识别失败，请重试');
+        }
+        setUploading(false);
+        setShowFormulaInput(false);
+    };
+
     const askAI = async () => {
         if (!question.trim()) {
             alert('请输入你的问题');
@@ -31,17 +63,25 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
 
         setLoading(true);
         setAnswer('');
+        setCurrentModel('');
+
+        // 获取用户保存的模型偏好
+        const userPreference = {
+            math: localStorage.getItem('ai_model') || 'math_medium'
+        };
 
         try {
             const response = await axios.post('http://localhost:3001/api/ai/ask', {
                 subject: currentSubject,
                 question: currentTopic 
                     ? `关于《${currentTopic}》，学生问：${question}。请用通俗易懂的方式回答。`
-                    : question
+                    : question,
+                userPreference: userPreference
             });
 
             if (response.data.success) {
                 setAnswer(response.data.answer);
+                setCurrentModel(response.data.modelDisplayName || response.data.model);
             } else {
                 setAnswer(`错误: ${response.data.error}`);
             }
@@ -50,6 +90,19 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
         }
 
         setLoading(false);
+    };
+
+    // 获取当前模型的提示信息
+    const getModelTip = () => {
+        const modelMap = {
+            '快速模式': '⚡ 适合普通题型，速度最快',
+            '中速模式': '🚀 适合疑难题目，准确率高',
+            '均衡模式': '🎨 适合需要美观公式的场景'
+        };
+        for (const [key, tip] of Object.entries(modelMap)) {
+            if (currentModel.includes(key)) return tip;
+        }
+        return '💡 难题可切换不同模型对比答案';
     };
 
     return (
@@ -85,7 +138,7 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                     position: 'fixed',
                     bottom: '100px',
                     right: '30px',
-                    width: '450px',
+                    width: '500px',
                     maxWidth: 'calc(100vw - 60px)',
                     background: 'white',
                     borderRadius: '12px',
@@ -128,31 +181,144 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                             color: '#666',
                             borderBottom: '1px solid #e8e8e8'
                         }}>
-                            当前学习：{currentTopic}
+                            📖 当前学习：{currentTopic}
                         </div>
                     )}
 
-                    {/* 公式输入提示 */}
+                    {/* 当前模型显示 */}
+                    {currentModel && (
+                        <div style={{
+                            background: '#e6f7ff',
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            color: '#1890ff',
+                            borderBottom: '1px solid #91d5ff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: '6px'
+                        }}>
+                            <span>🧠 当前模型：{currentModel}</span>
+                            <span style={{ fontSize: '11px', color: '#666' }}>{getModelTip()}</span>
+                        </div>
+                    )}
+
+                    {/* 公式工具栏 */}
                     <div style={{
                         background: '#f5f5f5',
-                        padding: '6px 12px',
-                        fontSize: '11px',
-                        color: '#999',
+                        padding: '8px 12px',
                         borderBottom: '1px solid #e8e8e8',
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
+                        gap: '10px',
+                        flexWrap: 'wrap'
                     }}>
-                        <span>💡</span>
-                        <span>数学公式请用 LaTeX 格式输入：分数用 \frac 命令，根号用 \sqrt 命令</span>
+                        <button
+                            onClick={() => setShowFormulaInput(!showFormulaInput)}
+                            style={{
+                                padding: '4px 12px',
+                                background: showFormulaInput ? '#1890ff' : '#fff',
+                                color: showFormulaInput ? 'white' : '#333',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                        >
+                            📐 手动输入公式
+                        </button>
+                        <label style={{
+                            padding: '4px 12px',
+                            background: '#fff',
+                            border: '1px solid #ddd',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'inline-block'
+                        }}>
+                            📸 拍照识别公式
+                            <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={handleFormulaUpload}
+                                disabled={uploading}
+                            />
+                        </label>
+                        {uploading && <span style={{ fontSize: '12px', color: '#999' }}>识别中...</span>}
                     </div>
+
+                    {/* 公式输入面板 */}
+                    {showFormulaInput && (
+                        <div style={{
+                            padding: '12px',
+                            background: '#fafafa',
+                            borderBottom: '1px solid #e8e8e8'
+                        }}>
+                            <textarea
+                                placeholder="输入LaTeX公式，如: \frac{1}{2} 或 \sqrt{x^2+y^2}"
+                                rows={2}
+                                value={formulaLatex}
+                                onChange={(e) => setFormulaLatex(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px',
+                                    fontSize: '13px',
+                                    fontFamily: 'monospace',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ddd',
+                                    boxSizing: 'border-box',
+                                    resize: 'vertical'
+                                }}
+                            />
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                <button
+                                    onClick={() => {
+                                        if (formulaLatex) {
+                                            setQuestion(prev => prev + (prev ? ' ' : '') + formulaLatex);
+                                            setFormulaLatex('');
+                                            setShowFormulaInput(false);
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '4px 12px',
+                                        background: '#1890ff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    添加到提问
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowFormulaInput(false);
+                                        setFormulaLatex('');
+                                    }}
+                                    style={{
+                                        padding: '4px 12px',
+                                        background: '#f0f0f0',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    取消
+                                </button>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#999', marginTop: '8px' }}>
+                                💡 常用公式：分数 \frac{1}{2}，根号 \sqrt{2}，积分 \int_{a}^{b}
+                            </div>
+                        </div>
+                    )}
 
                     {/* 输入区域 */}
                     <div style={{ padding: '16px' }}>
                         <textarea
                             value={question}
                             onChange={(e) => setQuestion(e.target.value)}
-                            placeholder="输入你对这个知识点的疑问..."
+                            placeholder="输入你的问题...（支持LaTeX公式）"
                             rows={3}
                             style={{
                                 width: '100%',
@@ -183,26 +349,26 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                         </button>
                     </div>
 
-                    {/* 回答区域 - 带公式渲染 */}
+                    {/* 回答区域 */}
                     {answer && (
-                    <div style={{
-                        borderTop: '1px solid #eee',
-                        padding: '16px',
-                        maxHeight: '400px',
-                        overflow: 'auto',
-                        background: '#fafafa',
-                        fontSize: '14px',
-                        lineHeight: '1.6',
-                        textAlign: 'left'  // 添加左对齐
-                    }}>
-                        <ReactMarkdown
-                            remarkPlugins={[remarkMath]}
-                            rehypePlugins={[rehypeKatex]}
-                        >
-                            {answer}
-                        </ReactMarkdown>
-                    </div>                    
-            )}
+                        <div style={{
+                            borderTop: '1px solid #eee',
+                            padding: '16px',
+                            maxHeight: '400px',
+                            overflow: 'auto',
+                            background: '#fafafa',
+                            fontSize: '14px',
+                            lineHeight: '1.6',
+                            textAlign: 'left'
+                        }}>
+                            <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[rehypeKatex]}
+                            >
+                                {answer}
+                            </ReactMarkdown>
+                        </div>
+                    )}
                 </div>
             )}
         </>
