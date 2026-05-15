@@ -6,6 +6,8 @@ frontend/node_modules/
 # 数据文件（不推送）
 data/
 scripts/
+!backend/scripts/
+!backend/scripts/*.py
 
 # 测试目录
 ollama-test/

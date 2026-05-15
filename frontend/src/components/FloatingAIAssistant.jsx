@@ -363,7 +363,7 @@ function FloatingAIAssistant({ currentTopic, currentSubject }) {
                         }}>
                             <ReactMarkdown
                                 remarkPlugins={[remarkMath]}
-                                rehypePlugins={[rehypeKatex]}
+                                rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
                             >
                                 {answer}
                             </ReactMarkdown>

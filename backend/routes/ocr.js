@@ -1,110 +1,121 @@
 const express = require('express');
 const multer = require('multer');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+
 const router = express.Router();
 
-// 使用绝对路径的临时目录
-const uploadDir = path.join(__dirname, '../temp');
-
-// 确保目录存在
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    console.log('创建临时目录:', uploadDir);
-}
-
-// 配置 multer
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, uploadDir);
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
-});
-
-const upload = multer({ storage: storage });
-
-const ocrModel = req.body.model || 'pix2tex';  // pix2tex 或 llava
-
-if (ocrModel === 'llava') {
-    scriptPath = path.join(__dirname, '../../scripts/ocr_llava.py');
-} else {
-    scriptPath = path.join(__dirname, '../../scripts/ocr_pix2tex.py');
-}
-
-// Python 环境配置
-const pythonPath = 'C:\\Users\\deejo\\anaconda3\\envs\\pixel_ai\\python.exe';
-// 改用 pix2tex 脚本
-const scriptPath = path.join(__dirname, '../../scripts/ocr_pix2tex.py');
 const projectRoot = path.join(__dirname, '../..');
+const pythonPath = 'C:\\Users\\deejo\\anaconda3\\envs\\pixel_ai\\python.exe';
+const tempDir = path.join(__dirname, '../temp');
+const uploadDir = path.join(__dirname, '../uploads');
 
-function runOcrScript(imagePath) {
+for (const dir of [tempDir, uploadDir]) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+function createStorage(destination) {
+    return multer.diskStorage({
+        destination: (req, file, cb) => cb(null, destination),
+        filename: (req, file, cb) => {
+            const ext = path.extname(file.originalname) || '.png';
+            const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+            cb(null, `ocr-${suffix}${ext}`);
+        }
+    });
+}
+
+const tempUpload = multer({ storage: createStorage(tempDir) });
+const savedUpload = multer({ storage: createStorage(uploadDir) });
+
+function runPythonScript(scriptPath, imagePath, timeout = 120000) {
     return new Promise((resolve, reject) => {
-        const cmd = `"${pythonPath}" "${scriptPath}" "${imagePath}"`;
-        console.log('执行命令:', cmd);
-        
-        exec(cmd, { cwd: projectRoot, timeout: 60000 }, (error, stdout, stderr) => {
-            console.log('stdout:', stdout);
-            console.log('stderr:', stderr);
-            
+        const env = { ...process.env, PYTHONIOENCODING: 'utf-8' };
+
+        execFile(pythonPath, [scriptPath, imagePath], {
+            cwd: projectRoot,
+            timeout,
+            env,
+            windowsHide: true,
+            encoding: 'utf8'
+        }, (error, stdout, stderr) => {
+            if (stderr) {
+                console.log('OCR stderr:', stderr);
+            }
+
             if (error) {
                 reject(error);
                 return;
             }
-            
-            const trimmedStdout = stdout.trim();
-            if (!trimmedStdout) {
-                reject(new Error('Python 脚本没有输出'));
+
+            const output = stdout.trim();
+            if (!output) {
+                reject(new Error('Python script produced no output'));
                 return;
             }
-            
+
             try {
-                const result = JSON.parse(trimmedStdout);
-                resolve(result);
-            } catch (e) {
-                reject(e);
+                resolve(JSON.parse(output));
+            } catch (parseError) {
+                reject(new Error(`Failed to parse OCR output: ${parseError.message}`));
             }
         });
     });
 }
 
-router.post('/recognize', upload.single('image'), async (req, res) => {
-    console.log('收到OCR请求');
-    
+router.post('/recognize', tempUpload.single('image'), async (req, res) => {
     if (!req.file) {
-        return res.status(400).json({ success: false, error: '没有上传文件' });
+        return res.status(400).json({ success: false, error: 'No image uploaded' });
     }
-    
+
     const imagePath = req.file.path;
-    console.log('保存图片:', imagePath);
-    console.log('文件大小:', req.file.size);
-    console.log('文件是否存在:', fs.existsSync(imagePath));
-    
+    const scriptPath = path.join(projectRoot, 'scripts/ocr_pix2tex.py');
+
     try {
-        const result = await runOcrScript(imagePath);
-        console.log('OCR结果:', result);
-        
-        // 删除临时文件
-        if (fs.existsSync(imagePath)) {
-            fs.unlinkSync(imagePath);
-        }
-        
+        const result = await runPythonScript(scriptPath, imagePath, 120000);
         res.json({
-            success: true,
-            latex: result.latex,
+            success: !!result.success,
+            latex: result.latex || '',
             raw: result
         });
     } catch (error) {
-        console.error('OCR失败:', error);
+        console.error('Formula OCR failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+    } finally {
         if (fs.existsSync(imagePath)) {
             fs.unlinkSync(imagePath);
         }
+    }
+});
+
+router.post('/recognize-text', savedUpload.single('image'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No image uploaded' });
+    }
+
+    const imagePath = req.file.path;
+    const scriptPath = path.join(__dirname, '../scripts/ocr_paddle.py');
+
+    try {
+        const result = await runPythonScript(scriptPath, imagePath, 180000);
+        res.json({
+            success: !!result.success,
+            text: result.text || '',
+            blocks: result.blocks || [],
+            savedFile: req.file.filename,
+            savedPath: imagePath,
+            raw: result
+        });
+    } catch (error) {
+        console.error('Text OCR failed:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: error.message,
+            savedFile: req.file.filename,
+            savedPath: imagePath
         });
     }
 });

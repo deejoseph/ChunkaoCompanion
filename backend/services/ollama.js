@@ -2,29 +2,24 @@ const axios = require('axios');
 
 const OLLAMA_URL = 'http://localhost:11434';
 
-// 预定义模型配置（3种模式）
 const MODEL_CONFIGS = {
-    // 快速模式：轻量模型，速度最快
     math_fast: {
         model: 'qwen2-math:1.5b',
-        name: '⚡ 快速模式',
-        description: '速度最快(5-10秒)，适合普通题型、日常练习'
+        name: '快速模式',
+        description: '速度最快，适合普通题型、日常练习'
     },
-    // 中速模式：数学专用7B，准确率高
     math_medium: {
         model: 'qwen2-math:7b',
-        name: '🚀 中速模式',
-        description: '速度中等(20-30秒)，适合疑难题目、代数证明'
+        name: '中速模式',
+        description: '适合疑难题目、代数证明'
     },
-    // 均衡模式：通用模型，公式美观
     math_balanced: {
         model: 'qwen2.5-coder:7b',
-        name: '🎨 均衡模式',
-        description: '速度较慢(40-60秒)，公式美观，兼顾推理'
+        name: '均衡模式',
+        description: '公式排版更稳定，兼顾推理'
     }
 };
 
-// 默认数学模型（推荐中速）
 const DEFAULT_MODEL_MAP = {
     math: 'qwen2-math:7b',
     code: 'qwen2.5-coder:7b',
@@ -34,82 +29,114 @@ const DEFAULT_MODEL_MAP = {
     default: 'qwen2.5:7b'
 };
 
-// 获取用户选择的模型
 function getUserModelPreference(subject, userPreference) {
     if (subject !== 'math') {
         return DEFAULT_MODEL_MAP[subject] || DEFAULT_MODEL_MAP.default;
     }
-    
+
     const preference = userPreference?.math || 'math_medium';
     const config = MODEL_CONFIGS[preference];
     return config ? config.model : MODEL_CONFIGS.math_medium.model;
 }
 
+function normalizeMathDelimiters(text) {
+    return text
+        .replace(/\$\$1\$/g, '$')
+        .replace(/\$1\$/g, '$')
+        .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$')
+        .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$')
+        .replace(/\$\$(\d+)/g, '$$$1');
+}
+
+function stripFormulaCodeBlocks(text) {
+    return text.replace(/```(?:latex|tex|math)?\s*([\s\S]*?)```/gi, (match, content) => {
+        return `\n\n${content.trim()}\n\n`;
+    });
+}
+
+function wrapBareFormulaLines(text) {
+    const latexCommandPattern = /\\(?:frac|sqrt|boxed|begin|end|sum|int|lim|sin|cos|tan|log|ln|cdot|times|le|ge|neq|approx|alpha|beta|gamma|theta|pi|triangle|angle|overline|vec|left|right)/;
+
+    return text.split('\n').map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        if (trimmed.startsWith('$') || trimmed.endsWith('$')) return line;
+        if (/^[-*]\s+/.test(trimmed)) return line;
+        if (/^\d+[.)、]/.test(trimmed) && !latexCommandPattern.test(trimmed)) return line;
+
+        const hasLatexCommand = latexCommandPattern.test(trimmed);
+        const hasMathShape = /[=<>]|[\^_]|\\/.test(trimmed);
+        const hasCjk = /[\u4e00-\u9fff]/.test(trimmed);
+        const hasChinesePunctuation = /[，。；：！？]/.test(trimmed);
+        const isLikelyFormulaLine = hasLatexCommand || (hasMathShape && /[a-zA-Z0-9{}]/.test(trimmed));
+
+        if (isLikelyFormulaLine && !hasCjk && !hasChinesePunctuation) {
+            return `$$${trimmed}$$`;
+        }
+
+        return line;
+    }).join('\n');
+}
+
 function formatMathOutput(text) {
     if (!text) return text;
-    
-    // 1. 修复常见的 $$1$ 错误
-    text = text.replace(/\$\$1\$/g, '$');
-    text = text.replace(/\$1\$/g, '$');
-    
-    // 2. 确保行内公式用 $...$
-    text = text.replace(/\\\((.*?)\\\)/g, '$$$1$');
-    
-    // 3. 确保独立公式用 $$...$$
-    text = text.replace(/\\\[(.*?)\\\]/g, '$$$$$1$$');
-    
-    // 4. 修复 $$ 后面跟数字的问题
-    text = text.replace(/\$\$(\d+)/g, '$$$1');
-    
-    // 5. 将不完整的 $ 补全
-    let dollarCount = (text.match(/\$/g) || []).length;
+
+    let output = stripFormulaCodeBlocks(text);
+    output = normalizeMathDelimiters(output);
+    output = wrapBareFormulaLines(output);
+
+    const dollarCount = (output.match(/\$/g) || []).length;
     if (dollarCount % 2 !== 0) {
-        text = text + '$';
+        output += '$';
     }
-    
-    // 6. 美化：将 $$...$$ 内的内容适当换行
-    text = text.replace(/\$\$(.*?)\$\$/g, '\n\n$$$1$$\n\n');
-    
-    return text;
+
+    return output
+        .replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => `\n\n$$${formula.trim()}$$\n\n`)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function buildMathPrompt() {
+    return `你是一个春考数学助教。输出目标是给学生直接阅读的印刷版数学解析。
+
+必须严格遵守：
+1. 禁止显示裸 LaTeX 源码。不要直接输出 \\frac、\\sqrt、\\boxed、^、_ 这类未包裹的公式源码。
+2. 行内短公式必须写成 $...$，独立公式必须写成 $$...$$。前端会把它们渲染成印刷公式。
+3. 不要用 markdown 代码块、反引号、"LaTeX:" 或 "公式源码:" 展示公式。
+4. 分数写成 $$\\frac{分子}{分母}$$，根号写成 $$\\sqrt{表达式}$$，最终答案写成 $$\\boxed{答案}$$。
+5. 每一步先用中文解释，再给独立公式；复杂公式单独成行，不要挤在中文段落里。
+6. 回答里给学生看到的应是排版后的数学表达式，而不是 LaTeX 代码本身。
+7. 步骤清楚，控制在 500 字以内。`;
 }
 
 async function askAI(subject, prompt, options = {}) {
-    // 获取用户选择的模型偏好
     const preference = options.userPreference?.math || 'math_medium';
-    const config = MODEL_CONFIGS[preference];
-    const modelName = config ? config.model : MODEL_CONFIGS.math_medium.model;
-    const modelDisplayName = config ? config.name : '中速模式';
-    
+    const config = MODEL_CONFIGS[preference] || MODEL_CONFIGS.math_medium;
+    const modelName = subject === 'math'
+        ? config.model
+        : (DEFAULT_MODEL_MAP[subject] || DEFAULT_MODEL_MAP.default);
+
     const systemPrompts = {
-        math: `你是一个春考数学助教。要求：
-1. 输出必须使用标准LaTeX格式
-2. 行内公式用 $...$，独立公式用 $$...$$
-3. 分数用 \\frac{分子}{分母}，根号用 \\sqrt{表达式}
-4. 步骤清晰，每步换行
-5. 最后答案用 \\boxed{答案} 框出
-6. 控制在500字以内`,
-
+        math: buildMathPrompt(),
         chinese: `你是一个春考语文助教。要求：
-1. 分析文本时要点明确，分条列出
-2. 答题格式参考春考标准
-3. 语言简洁，控制在400字以内`,
-
+1. 分析文本时要点明确，分条列出。
+2. 答题格式参考春考标准。
+3. 语言简洁，控制在 400 字以内。`,
         english: `你是一个春考英语助教。要求：
-1. 用中文解释语法点和词汇
-2. 给出典型例句
-3. 帮助理解长难句`,
-
+1. 用中文解释语法点和词汇。
+2. 给出典型例句。
+3. 帮助学生理解长难句。`,
         essay: `你是一个春考作文助教。要求：
-1. 指出优点（1-2点）
-2. 指出不足（2-3点）
-3. 给出修改建议
-4. 总体评分（满分100分）
-5. 语言温和鼓励`
+1. 指出优点 1-2 点。
+2. 指出不足 2-3 点。
+3. 给出修改建议。
+4. 给出总体评分，满分 100 分。
+5. 语言温和。`
     };
 
     const systemPrompt = systemPrompts[subject] || systemPrompts.chinese;
     const fullPrompt = `${systemPrompt}\n\n学生问题：${prompt}`;
-    
+
     console.log(`使用模型: ${modelName} (学科: ${subject})`);
 
     try {
@@ -118,25 +145,24 @@ async function askAI(subject, prompt, options = {}) {
             prompt: fullPrompt,
             stream: false,
             options: {
-                temperature: options.temperature || 0.6,
-                max_tokens: options.max_tokens || 800
+                temperature: options.temperature || 0.4,
+                num_predict: options.max_tokens || 900
             }
         });
-        
+
         let answer = response.data.response || '';
-        
         if (subject === 'math') {
             answer = formatMathOutput(answer);
         }
-        
+
         return {
             success: true,
             model: modelName,
-            modelDisplayName: config.name,  // 如 "🚀 中速模式"
-            answer: answer
+            modelDisplayName: subject === 'math' ? config.name : modelName,
+            answer
         };
     } catch (error) {
-        console.error('Ollama调用失败:', error.message);
+        console.error('Ollama 调用失败:', error.message);
         return {
             success: false,
             error: error.message
@@ -144,4 +170,4 @@ async function askAI(subject, prompt, options = {}) {
     }
 }
 
-module.exports = { askAI, MODEL_CONFIGS };
+module.exports = { askAI, MODEL_CONFIGS, formatMathOutput, getUserModelPreference };
