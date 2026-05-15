@@ -5,6 +5,7 @@ import AIAssistant from './components/AIAssistant';
 import './App.css';
 import ExamPapers from './components/ExamPapers';
 import Listening from './components/Listening';
+import LearningStats from './components/LearningStats';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
@@ -199,6 +200,7 @@ function App() {
 
             {/* 学习统计 */}
             <button
+                onClick={() => setActiveTab('stats')}
                 style={{
                     background: 'transparent',
                     border: 'none',
@@ -255,6 +257,7 @@ function App() {
       {activeTab === 'ai' && <AIAssistant />}
       {activeTab === 'exam' && <ExamPapers />}
       {activeTab === 'listening' && <Listening />}
+    {activeTab === 'stats' && <LearningStats />}
 
       {/* 📄 批量处理Word弹窗 */}
       {showProcessModal && (

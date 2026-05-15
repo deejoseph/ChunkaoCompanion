@@ -25,11 +25,24 @@ function KnowledgeLearning() {
     useEffect(() => {
         calculateProgress();
     }, [topics]);
+    
+    // 更新单个专题的状态（无需重新加载整个列表）
+    const updateTopicStatus = (topicName, isCompleted, score) => {
+        setTopics(prevTopics => 
+            prevTopics.map(topic => 
+                topic.name === topicName 
+                    ? { ...topic, isCompleted, score }
+                    : topic
+            )
+        );
+    };
 
     const calculateProgress = () => {
         let completed = 0;
         topics.forEach(topic => {
-            const status = localStorage.getItem(`topic_${topic.id}_status`);
+            const storageKey = `topic_${selectedSubject}_${topic.name}_status`;
+            console.log('读取 key:', storageKey);
+            const status = localStorage.getItem(storageKey);
             if (status) {
                 try {
                     const parsed = JSON.parse(status);
@@ -45,10 +58,14 @@ function KnowledgeLearning() {
         try {
             const response = await axios.get(`http://localhost:3001/api/docs/topics/${selectedSubject}/${selectedVersion}`);
             console.log('API响应:', response.data);
-            
+
             if (response.data.success && response.data.topics) {
                 setTopics(response.data.topics);
-                console.log(`加载了 ${response.data.topics.length} 个专题`);
+
+                // 保存该学科该版本的总专题数
+                const totalKey = `total_${selectedSubject}_${selectedVersion}`;
+                localStorage.setItem(totalKey, response.data.topics.length);
+                console.log(`保存总数: ${totalKey} = ${response.data.topics.length}`);
             } else {
                 console.error('返回数据格式错误:', response.data);
                 setTopics([]);
@@ -192,50 +209,61 @@ function KnowledgeLearning() {
                                     暂无专题
                                 </div>
                             ) : (
-                                topics.map(topic => {
-                                    const status = localStorage.getItem(`topic_${topic.id}_status`);
-                                    let isCompleted = false;
-                                    let score = null;
-                                    if (status) {
-                                        try {
-                                            const parsed = JSON.parse(status);
-                                            isCompleted = parsed.completed;
-                                            score = parsed.score;
-                                        } catch (e) {}
-                                    }
+                            topics.map(topic => {
+                                // 使用 topic.name（中文名称）作为 key
+                                const storageKey = `topic_${selectedSubject}_${topic.name}_status`;
+                                const status = localStorage.getItem(storageKey);
+                                let isCompleted = false;
+                                let score = null;
+                                if (status) {
+                                    try {
+                                        const parsed = JSON.parse(status);
+                                        isCompleted = parsed.completed;
+                                        score = parsed.score;
+                                    } catch (e) {}
+                                }
 
-                                    return (
-                                        <div
-                                            key={topic.id}
-                                            onClick={() => openTopicLearning(topic)}
-                                            style={{
-                                                padding: '8px 8px 8px 24px',
-                                                margin: '4px 0',
-                                                background: selectedTopicForLearning?.id === topic.id ? '#e6f7ff' : 'transparent',
-                                                borderRadius: '4px',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                textAlign: 'left'
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, textAlign: 'left' }}>
-                                                {isCompleted ? '✅' : '📖'}
-                                                <span style={{ fontSize: '14px', flex: 1, textAlign: 'left' }}>{topic.name}</span>
-                                            </div>
-                                            {score !== null && (
-                                                <span style={{
-                                                    fontSize: '12px',
-                                                    color: score >= 80 ? '#52c41a' : score >= 60 ? '#fa8c16' : '#f5222d',
-                                                    textAlign: 'right'
-                                                }}>
-                                                    {score}分
-                                                </span>
-                                            )}
+                                return (
+                                    <div
+                                        key={topic.id}
+                                        onClick={() => openTopicLearning(topic)}
+                                        style={{
+                                            padding: '8px 8px 8px 24px',
+                                            margin: '4px 0',
+                                            background: selectedTopicForLearning?.id === topic.id ? '#e6f7ff' : 'transparent',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            textAlign: 'left',
+                                            opacity: isCompleted ? 0.75 : 1
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, textAlign: 'left' }}>
+                                            {isCompleted ? '✅' : '📖'}
+                                            <span style={{ 
+                                                fontSize: '14px', 
+                                                flex: 1, 
+                                                textAlign: 'left',
+                                                textDecoration: isCompleted ? 'line-through' : 'none',
+                                                color: isCompleted ? '#999' : '#333'
+                                            }}>
+                                                {topic.name}
+                                            </span>
                                         </div>
-                                    );
-                                })
+                                        {score !== null && (
+                                            <span style={{
+                                                fontSize: '12px',
+                                                color: score >= 80 ? '#52c41a' : score >= 60 ? '#fa8c16' : '#f5222d',
+                                                textAlign: 'right'
+                                            }}>
+                                                {score}分
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })
                             )}
                         </div>                        
                     </>
@@ -301,7 +329,9 @@ function KnowledgeLearning() {
                         subject={selectedSubject}
                         version={selectedVersion}
                         onClose={closeTopicLearning}
-                        onRefreshProgress={() => loadTopics()}
+                        onRefreshProgress={() => loadTopics()} 
+                        onUpdateStatus={updateTopicStatus}  // 添加这行
+                        // 刷新列表
                     />
                 )}
             </div>

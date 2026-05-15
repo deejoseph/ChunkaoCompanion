@@ -83,32 +83,112 @@ function wrapBareFormulaLines(text) {
 function formatMathOutput(text) {
     if (!text) return text;
 
-    let output = stripFormulaCodeBlocks(text);
-    output = normalizeMathDelimiters(output);
-    output = wrapBareFormulaLines(output);
+    let output = text;
 
-    const dollarCount = (output.match(/\$/g) || []).length;
+    // 1. 修复每个字母之间被插入空格的问题
+    // 将 "a x^2" 修复为 "ax^2"
+    output = output.replace(/([a-zA-Z])\s+([a-zA-Z0-9])/g, '$1$2');
+    output = output.replace(/([a-zA-Z0-9])\s+([=+\-*/^])/g, '$1$2');
+    output = output.replace(/([=+\-*/^])\s+([a-zA-Z0-9])/g, '$1$2');
+    
+    // 2. 修复数字和变量之间的空格
+    output = output.replace(/(\d)\s+([a-zA-Z])/g, '$1$2');
+    output = output.replace(/([a-zA-Z])\s+(\d)/g, '$1$2');
+    
+    // 3. 修复 "x $ =" 为 "$x =$"
+    output = output.replace(/([a-zA-Z0-9])\s*\$([^$])/g, '$$$1$2');
+    output = output.replace(/\$([^$])\s*([a-zA-Z0-9])/g, '$$$1$2');
+    
+    // 4. 移除公式内部的孤立空格
+    output = output.replace(/\$([^$]+?)\s+([^$]+?)\$/g, '$$$1$2$');
+    
+    // 5. 修复不完整的美元符号对
+    output = output.replace(/([^$])\$([^$])/g, '$1$$2');
+    
+    // 6. 移除 markdown 代码块
+    output = output.replace(/```(?:latex|tex|math)?\s*([\s\S]*?)```/gi, (match, content) => {
+        return `\n\n${content.trim()}\n\n`;
+    });
+
+    // 7. 修复 $$1$ 这种错误格式
+    output = output.replace(/\$\$1\$/g, '$');
+    output = output.replace(/\$1\$/g, '$');
+    output = output.replace(/\${\$1}\$/g, '$');
+
+    // 8. 转换 \(...\) 和 \[...\] 为标准格式
+    output = output.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$');
+    output = output.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$');
+
+    // 9. 修复 $$后跟数字的问题
+    output = output.replace(/\$\$(\d+)/g, '$$$1');
+
+    // 10. 识别未包裹的 LaTeX 命令并自动包裹
+    const lines = output.split('\n');
+    const wrapped = lines.map(line => {
+        let trimmed = line.trim();
+        
+        if (trimmed.startsWith('$') && trimmed.endsWith('$')) return line;
+        if (trimmed.startsWith('```')) return line;
+        if (trimmed.length === 0) return line;
+        
+        const latexPattern = /\\(?:frac|sqrt|boxed|begin|end|sum|int|lim|sin|cos|tan|log|ln|cdot|times|le|ge|neq|approx|alpha|beta|gamma|theta|pi|triangle|angle|overline|vec|left|right|partial|infty|Rightarrow|rightarrow|Leftarrow|leftarrow|mapsto|forall|exists|in|subset|subseteq|cup|cap|land|lor|lnot|dots|cdots|vdots|ddots)/;
+        const mathSymbolPattern = /[=<>+\-*/^_{}]|(\d+[a-zA-Z])|([a-zA-Z]\d+)/;
+        
+        const hasLatex = latexPattern.test(trimmed);
+        const hasMathSymbols = mathSymbolPattern.test(trimmed);
+        const hasNoChinese = !/[\u4e00-\u9fff]/.test(trimmed);
+        
+        if ((hasLatex || hasMathSymbols) && hasNoChinese && trimmed.length > 1) {
+            if (!trimmed.startsWith('$')) {
+                return `$${trimmed}$`;
+            }
+        }
+        
+        if (trimmed.includes('\\begin{aligned}') || trimmed.includes('\\begin{cases}')) {
+            if (!trimmed.startsWith('$$')) {
+                return `$$${trimmed}$$`;
+            }
+        }
+        
+        return line;
+    });
+    output = wrapped.join('\n');
+
+    // 11. 修复不配对的美元符号
+    let dollarCount = (output.match(/\$/g) || []).length;
     if (dollarCount % 2 !== 0) {
-        output += '$';
+        output = output + '$';
     }
 
-    return output
-        .replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => `\n\n$$${formula.trim()}$$\n\n`)
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+    // 12. 清理多余空行
+    output = output.replace(/\n{3,}/g, '\n\n');
+    output = output.replace(/\$\$\s*\$\$/g, '');
+    output = output.replace(/\$\$?\s*\\boxed\{([^}]+)\}\s*\$?\$?/g, '$$\\boxed{$1}$$');
+
+    return output.trim();
 }
 
 function buildMathPrompt() {
-    return `你是一个春考数学助教。输出目标是给学生直接阅读的印刷版数学解析。
+    return `你是一个春考数学助教，必须使用中文输出所有解释和说明。输出目标是给学生直接阅读的印刷版数学解析。
 
-必须严格遵守：
-1. 禁止显示裸 LaTeX 源码。不要直接输出 \\frac、\\sqrt、\\boxed、^、_ 这类未包裹的公式源码。
-2. 行内短公式必须写成 $...$，独立公式必须写成 $$...$$。前端会把它们渲染成印刷公式。
-3. 不要用 markdown 代码块、反引号、"LaTeX:" 或 "公式源码:" 展示公式。
-4. 分数写成 $$\\frac{分子}{分母}$$，根号写成 $$\\sqrt{表达式}$$，最终答案写成 $$\\boxed{答案}$$。
-5. 每一步先用中文解释，再给独立公式；复杂公式单独成行，不要挤在中文段落里。
-6. 回答里给学生看到的应是排版后的数学表达式，而不是 LaTeX 代码本身。
-7. 步骤清楚，控制在 500 字以内。`;
+【必须遵守】：
+1. 所有解释、步骤说明必须用中文。
+2. 所有数学表达式必须用 $ 或 $$ 包裹。
+   - 行内短公式用 $...$，例如：$x = 1$
+   - 独立公式用 $$...$$，例如：$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+3. 禁止输出未包裹的 LaTeX 源码，如 \\frac、\\sqrt、^、_ 等必须写在 $ 或 $$ 内部。
+4. 不要输出 "$$1$" 这种错误格式。
+5. 不要使用 markdown 代码块展示公式。
+6. 分数写法：$$\\frac{分子}{分母}$$
+7. 根号写法：$$\\sqrt{表达式}$$
+8. 最终答案写法：$$\\boxed{答案}$$
+9. 复杂公式单独成行，不要挤在中文段落里。
+10. 步骤说明用中文，每步换行。
+11. 输出长度不限，确保完整推导。
+12. 禁止在字母之间插入空格。正确: "ax^2"，错误: "a x^2"
+13. 禁止在数字和变量之间插入空格。正确: "2x"，错误: "2 x"
+14. 所有解释用中文。
+15. 公式用 $ 或 $$ 包裹。`;
 }
 
 async function askAI(subject, prompt, options = {}) {
@@ -157,7 +237,7 @@ async function askAI(subject, prompt, options = {}) {
             stream: false,
             options: {
                 temperature: options.temperature || 0.4,
-                num_predict: options.max_tokens || 900
+                num_predict: options.max_tokens || 2048  // 从 900 增加到 2048
             }
         });
 

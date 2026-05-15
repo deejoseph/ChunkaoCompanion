@@ -1,24 +1,29 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
-function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) {
+function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, onUpdateStatus }) {
     const [isTeacherMode, setIsTeacherMode] = useState(true);
     const [isCompleted, setIsCompleted] = useState(false);
     const [score, setScore] = useState(null);
     const [showOcrUpload, setShowOcrUpload] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const [ocrResult, setOcrResult] = useState(null);  // 存储OCR识别的公式
-    const [showFormulaInput, setShowFormulaInput] = useState(false);  // 公式输入模式
-
+    const [ocrResult, setOcrResult] = useState(null);
+    const [showFormulaInput, setShowFormulaInput] = useState(false);
+    
     // 从localStorage读取学习状态
     useEffect(() => {
-        const status = localStorage.getItem(`topic_${topic.id}_status`);
+        const storageKey = `topic_${subject}_${topic.name}_status`;
+        const status = localStorage.getItem(storageKey);
+        console.log('读取状态:', storageKey, status);  // 添加日志
         if (status) {
             const parsed = JSON.parse(status);
             setIsCompleted(parsed.completed || false);
             setScore(parsed.score);
+        } else {
+            setIsCompleted(false);
+            setScore(null);
         }
-    }, [topic]);
+    }, [topic.name, subject]);  // 确保依赖正确
 
     // 获取当前要显示的PDF路径
     const getPdfUrl = () => {
@@ -34,33 +39,21 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
             score: score,
             completedAt: new Date().toISOString()
         };
-        localStorage.setItem(`topic_${topic.id}_status`, JSON.stringify(status));
+        // 使用完整的 topic.name（包含所有后缀）
+        const storageKey = `topic_${subject}_${topic.name}_status`;
+        console.log('保存状态:', storageKey, status);
+        localStorage.setItem(storageKey, JSON.stringify(status));
         setIsCompleted(true);
-        if (onRefreshProgress) onRefreshProgress();
-        alert('已完成学习！可以开始学生版测验了');
-    };
 
-    // OCR识别公式
-    const resizeImage = (file) => {
-        return new Promise((resolve) => {
-            const img = new Image();
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                img.src = e.target.result;
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    const scale = 4;
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    canvas.toBlob((blob) => {
-                        resolve(new File([blob], 'formula.png', { type: 'image/png' }));
-                    }, 'image/png');
-                };
-            };
-            reader.readAsDataURL(file);
-        });
+        if (onUpdateStatus) {
+            onUpdateStatus(topic.name, true, score);
+        }
+
+        if (onRefreshProgress) {
+            onRefreshProgress();
+        }
+
+        alert('已完成学习！可以开始学生版测验了');
     };
 
     const handleOcrUpload = async (e) => {
@@ -80,7 +73,26 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
             if (response.data.success) {
                 const latex = response.data.latex;
                 setOcrResult(latex);
-                alert(`识别成功！公式: ${latex}`);
+
+                // TODO: 这里需要计算实际成绩，目前使用模拟分数
+                const mockScore = Math.floor(Math.random() * 30) + 70; // 70-100分
+
+                // 保存成绩到 localStorage
+                const storageKey = `topic_${subject}_${topic.id}_status`;
+                const existingStatus = localStorage.getItem(storageKey);
+                const status = existingStatus ? JSON.parse(existingStatus) : { completed: false };
+                status.score = mockScore;
+                status.lastOcrResult = latex;
+                status.lastOcrTime = new Date().toISOString();
+                localStorage.setItem(storageKey, JSON.stringify(status));
+
+                setScore(mockScore);
+                alert(`识别成功！公式: ${latex}\n成绩: ${mockScore}分`);
+
+                // 通知父组件更新
+                if (onUpdateStatus) {
+                    onUpdateStatus(topic.id, false, mockScore);
+                }
             } else {
                 alert('识别失败: ' + (response.data.error || '未知错误'));
             }
@@ -93,10 +105,8 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
         }
     };
     
-    // 向AI助教发送公式
     const sendToAIAssistant = () => {
         if (ocrResult) {
-            // 触发全局事件，让悬浮AI助教接收公式
             const event = new CustomEvent('sendToAI', { detail: { text: ocrResult } });
             window.dispatchEvent(event);
             alert('已发送到AI助教，请点击右下角AI助教查看');
@@ -131,19 +141,22 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
                             📊 上次成绩: {score}分
                         </span>
                     )}
-                    {!isCompleted && isTeacherMode && (
+                    
+                    {/* 修改后的按钮：始终显示，已完成时变灰不可点击 */}
+                    {isTeacherMode && (
                         <button
                             onClick={markCompleted}
+                            disabled={isCompleted}
                             style={{
                                 padding: '6px 16px',
-                                background: '#52c41a',
+                                background: isCompleted ? '#ccc' : '#52c41a',
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '4px',
-                                cursor: 'pointer'
+                                cursor: isCompleted ? 'not-allowed' : 'pointer'
                             }}
                         >
-                            ✅ 完成学习
+                            {isCompleted ? '✅ 已完成' : '✅ 完成学习'}
                         </button>
                     )}
                 </div>
@@ -198,7 +211,6 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress }) 
                             📸 上传答题卡
                         </button>
                         
-                        {/* 公式输入模式按钮 */}
                         <button
                             onClick={() => setShowFormulaInput(!showFormulaInput)}
                             style={{
