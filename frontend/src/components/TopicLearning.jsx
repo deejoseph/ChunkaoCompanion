@@ -213,27 +213,29 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                     📝 学生版（测验）
                 </button>
 
-                {/* 学生版模式下显示：打印答题卡 + 上传答题卡 */}
+                {/* 学生版模式下显示：提示信息 + 上传答题卡 */}
                 {!isTeacherMode && (
-                    <>
-                        {/* 打印答题卡按钮 */}
-                        <a
-                            href={`http://localhost:3001/api/docs/answer-sheet/${subject}/${topic.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                                padding: '8px 20px',
-                                background: '#52c41a',
-                                color: 'white',
-                                textDecoration: 'none',
-                                borderRadius: '4px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                        >
-                            🖨️ 打印答题卡
-                        </a>
+                    <div style={{ width: '100%', marginBottom: '20px' }}>
+                        {/* 提示框 */}
+                        <div style={{
+                            background: '#e6f7ff',
+                            border: '1px solid #91d5ff',
+                            borderRadius: '8px',
+                            padding: '12px 16px',
+                            marginBottom: '15px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            flexWrap: 'wrap'
+                        }}>
+                            <span style={{ fontSize: '24px' }}>📄</span>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>📌 测验方式</div>
+                                <div style={{ fontSize: '13px', color: '#666' }}>
+                                    请先打印「学生版」PDF，完成手写作答后，将答题页拍照上传，AI将自动识别并批改。
+                                </div>
+                            </div>
+                        </div>
 
                         {/* 上传答题卡按钮 */}
                         <button
@@ -250,27 +252,28 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                                 gap: '6px'
                             }}
                         >
-                            📸 上传答题卡
+                            📸 上传答题卡（拍照）
                         </button>
 
                         {/* 公式输入模式按钮 */}
                         <button
                             onClick={() => setShowFormulaInput(!showFormulaInput)}
                             style={{
+                                marginLeft: '10px',
                                 padding: '8px 20px',
                                 background: showFormulaInput ? '#52c41a' : '#f0f0f0',
                                 color: showFormulaInput ? 'white' : '#333',
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: 'pointer',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '6px'
                             }}
                         >
                             📐 公式输入
                         </button>
-                    </>
+                    </div>
                 )}
             </div>
 
