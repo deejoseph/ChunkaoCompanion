@@ -74,10 +74,10 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                 const latex = response.data.latex;
                 setOcrResult(latex);
 
-                // TODO: 这里需要计算实际成绩，目前使用模拟分数
+                // 模拟评分（实际应该根据标准答案计算）
                 const mockScore = Math.floor(Math.random() * 30) + 70; // 70-100分
 
-                // 保存成绩到 localStorage
+                // 1. 保存成绩到专题状态
                 const storageKey = `topic_${subject}_${topic.id}_status`;
                 const existingStatus = localStorage.getItem(storageKey);
                 const status = existingStatus ? JSON.parse(existingStatus) : { completed: false };
@@ -86,12 +86,34 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                 status.lastOcrTime = new Date().toISOString();
                 localStorage.setItem(storageKey, JSON.stringify(status));
 
+                // 2. 记录到成绩趋势数据
+                const testCountKey = `${subject}_test_count`;
+                let testNumber = parseInt(localStorage.getItem(testCountKey) || 0);
+                testNumber++;
+
+                const scoreRecord = {
+                    id: `score_${subject}_${Date.now()}`,
+                    subject: subject,
+                    score: mockScore,
+                    testNumber: testNumber,
+                    timestamp: new Date().toISOString(),
+                    topicName: topic.name
+                };
+
+                localStorage.setItem(`score_${subject}_${testNumber}`, JSON.stringify(scoreRecord));
+                localStorage.setItem(testCountKey, testNumber);
+
+                console.log(`成绩已记录: ${subject} 第${testNumber}次测验，得分 ${mockScore}`);
+
                 setScore(mockScore);
                 alert(`识别成功！公式: ${latex}\n成绩: ${mockScore}分`);
 
-                // 通知父组件更新
+                // 通知父组件更新列表中的分数
                 if (onUpdateStatus) {
                     onUpdateStatus(topic.id, false, mockScore);
+                }
+                if (onRefreshProgress) {
+                    onRefreshProgress();
                 }
             } else {
                 alert('识别失败: ' + (response.data.error || '未知错误'));
@@ -162,7 +184,7 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                 </div>
             </div>
 
-            {/* 模式切换 + 上传答题卡按钮 */}
+            {/* 模式切换 + 答题卡下载 + 上传答题卡按钮 */}
             <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                     onClick={() => setIsTeacherMode(true)}
@@ -190,10 +212,30 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                 >
                     📝 学生版（测验）
                 </button>
-                
-                {/* 上传答题卡按钮 - 只在学生版显示 */}
+
+                {/* 学生版模式下显示：打印答题卡 + 上传答题卡 */}
                 {!isTeacherMode && (
                     <>
+                        {/* 打印答题卡按钮 */}
+                        <a
+                            href={`http://localhost:3001/api/docs/answer-sheet/${subject}/${topic.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                                padding: '8px 20px',
+                                background: '#52c41a',
+                                color: 'white',
+                                textDecoration: 'none',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            🖨️ 打印答题卡
+                        </a>
+
+                        {/* 上传答题卡按钮 */}
                         <button
                             onClick={() => setShowOcrUpload(!showOcrUpload)}
                             style={{
@@ -210,7 +252,8 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                         >
                             📸 上传答题卡
                         </button>
-                        
+
+                        {/* 公式输入模式按钮 */}
                         <button
                             onClick={() => setShowFormulaInput(!showFormulaInput)}
                             style={{

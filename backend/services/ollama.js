@@ -29,15 +29,78 @@ const DEFAULT_MODEL_MAP = {
     default: 'qwen2.5:7b'
 };
 
+// ========== 语文题型检测和专用提示词 ==========
+
+// 语文不同题型的提示词模板
+const CHINESE_PROMPTS = {
+    // 古诗文默写
+    dictation: `你是一个春考语文助教，专精于古诗文默写批改。严格要求：
+1. 输出必须与教材原文完全一致，逐字逐句
+2. 不要添加任何解释、标点符号或多余内容
+3. 多个答案用空格分隔
+4. 如果不确定，输出"不确定"
+5. 只输出答案，不要输出题号`,
+
+    // 阅读理解
+    reading: `你是一个春考语文助教，专精于阅读理解分析。要求：
+1. 分析文章的主旨、结构和写作手法
+2. 答案要点明确，分条列出
+3. 参考春考答题格式
+4. 控制在400字以内`,
+
+    // 作文批改
+    essay: `你是一个春考语文助教，专精于作文批改。要求：
+1. 从立意、结构、语言、素材四个维度评分
+2. 指出优点（2-3点）
+3. 指出不足（2-3点）
+4. 给出具体修改建议
+5. 总体评分（满分70分）`,
+
+    // 基础知识（成语、病句等）
+    basic: `你是一个春考语文助教，专精于基础知识。要求：
+1. 解释要准确、简洁
+2. 举例说明
+3. 控制在150字以内`,
+    
+    // 默认
+    default: `你是一个春考语文助教。要求：
+1. 分析文本时要点明确，分条列出
+2. 答题格式参考春考标准
+3. 语言简洁，控制在400字以内`
+};
+
+// 根据问题内容自动判断语文题型
+function detectChineseQuestionType(question) {
+    // 包含填空标记 → 默写题
+    if (question.includes('______') || question.includes('____________') || question.includes('。') && question.includes('（') && question.includes('）')) {
+        return 'dictation';
+    }
+    // 包含"作文"、"批改"、"评分" → 作文批改
+    if (question.includes('作文') || question.includes('批改') || question.includes('评分')) {
+        return 'essay';
+    }
+    // 包含"阅读"、"文章"、"分析" → 阅读理解
+    if (question.includes('阅读') || question.includes('文章') || question.includes('分析')) {
+        return 'reading';
+    }
+    // 包含"成语"、"病句"、"修改" → 基础知识
+    if (question.includes('成语') || question.includes('病句')) {
+        return 'basic';
+    }
+    return 'default';
+}
+
+// ========== 数学公式处理函数 ==========
+
 function getUserModelPreference(subject, userPreference) {
     if (subject !== 'math') {
         return DEFAULT_MODEL_MAP[subject] || DEFAULT_MODEL_MAP.default;
     }
 
     const preference = userPreference?.math || 'math_medium';
-    console.log('后端接收到的偏好:', preference);  // 添加日志
+    console.log('后端接收到的偏好:', preference);
     const config = MODEL_CONFIGS[preference];
-    console.log('使用的模型配置:', config);  // 添加日志
+    console.log('使用的模型配置:', config);
     return config ? config.model : MODEL_CONFIGS.math_medium.model;
 }
 
@@ -86,7 +149,6 @@ function formatMathOutput(text) {
     let output = text;
 
     // 1. 修复每个字母之间被插入空格的问题
-    // 将 "a x^2" 修复为 "ax^2"
     output = output.replace(/([a-zA-Z])\s+([a-zA-Z0-9])/g, '$1$2');
     output = output.replace(/([a-zA-Z0-9])\s+([=+\-*/^])/g, '$1$2');
     output = output.replace(/([=+\-*/^])\s+([a-zA-Z0-9])/g, '$1$2');
@@ -186,10 +248,10 @@ function buildMathPrompt() {
 10. 步骤说明用中文，每步换行。
 11. 输出长度不限，确保完整推导。
 12. 禁止在字母之间插入空格。正确: "ax^2"，错误: "a x^2"
-13. 禁止在数字和变量之间插入空格。正确: "2x"，错误: "2 x"
-14. 所有解释用中文。
-15. 公式用 $ 或 $$ 包裹。`;
+13. 禁止在数字和变量之间插入空格。正确: "2x"，错误: "2 x"`;
 }
+
+// ========== 主函数 ==========
 
 async function askAI(subject, prompt, options = {}) {
     console.log('收到的 options:', JSON.stringify(options, null, 2));
@@ -206,29 +268,36 @@ async function askAI(subject, prompt, options = {}) {
         : (DEFAULT_MODEL_MAP[subject] || DEFAULT_MODEL_MAP.default);
     
     console.log('最终使用的 modelName:', modelName);
-    // ... 其余代码
-    const systemPrompts = {
-        math: buildMathPrompt(),
-        chinese: `你是一个春考语文助教。要求：
-1. 分析文本时要点明确，分条列出。
-2. 答题格式参考春考标准。
-3. 语言简洁，控制在 400 字以内。`,
-        english: `你是一个春考英语助教。要求：
-1. 用中文解释语法点和词汇。
-2. 给出典型例句。
-3. 帮助学生理解长难句。`,
-        essay: `你是一个春考作文助教。要求：
-1. 指出优点 1-2 点。
-2. 指出不足 2-3 点。
-3. 给出修改建议。
-4. 给出总体评分，满分 100 分。
-5. 语言温和。`
-    };
-
-    const systemPrompt = systemPrompts[subject] || systemPrompts.chinese;
-    const fullPrompt = `${systemPrompt}\n\n学生问题：${prompt}`;
-
     console.log(`使用模型: ${modelName} (学科: ${subject})`);
+    
+    // 构建系统提示词（支持语文题型自动检测）
+    let systemPrompt;
+    
+    if (subject === 'math') {
+        systemPrompt = buildMathPrompt();
+    } else if (subject === 'chinese') {
+        // 自动检测语文题型
+        const questionType = detectChineseQuestionType(prompt);
+        systemPrompt = CHINESE_PROMPTS[questionType] || CHINESE_PROMPTS.default;
+        console.log(`语文题型检测: ${questionType}`);
+    } else if (subject === 'english') {
+        systemPrompt = `你是一个春考英语助教。要求：
+1. 用中文解释语法点和词汇
+2. 给出典型例句
+3. 帮助理解长难句
+4. 控制在400字以内`;
+    } else if (subject === 'essay') {
+        systemPrompt = `你是一个春考作文助教。要求：
+1. 指出优点（1-2点）
+2. 指出不足（2-3点）
+3. 给出修改建议
+4. 总体评分（满分100分）
+5. 语言温和鼓励`;
+    } else {
+        systemPrompt = `你是一个春考助教，请用中文回答学生的问题。`;
+    }
+    
+    const fullPrompt = `${systemPrompt}\n\n学生问题：${prompt}`;
 
     try {
         const response = await axios.post(`${OLLAMA_URL}/api/generate`, {
@@ -237,7 +306,7 @@ async function askAI(subject, prompt, options = {}) {
             stream: false,
             options: {
                 temperature: options.temperature || 0.4,
-                num_predict: options.max_tokens || 2048  // 从 900 增加到 2048
+                num_predict: options.max_tokens || 2048
             }
         });
 
@@ -246,11 +315,17 @@ async function askAI(subject, prompt, options = {}) {
             answer = formatMathOutput(answer);
         }
 
+        // 获取显示名称
+        let modelDisplayName = modelName;
+        if (subject === 'math' && config) {
+            modelDisplayName = config.name;
+        }
+
         return {
             success: true,
             model: modelName,
-            modelDisplayName: subject === 'math' ? config.name : modelName,
-            answer
+            modelDisplayName: modelDisplayName,
+            answer: answer
         };
     } catch (error) {
         console.error('Ollama 调用失败:', error.message);

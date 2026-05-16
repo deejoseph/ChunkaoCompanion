@@ -264,4 +264,22 @@ router.get('/test/:subject/:version', (req, res) => {
     }
 });
 
+// 获取答题卡文件
+router.get('/answer-sheet/:subject/:topicId', (req, res) => {
+    const { subject, topicId } = req.params;
+    const sheetDir = path.join(__dirname, '../../data/question_banks');
+    
+    // 查找匹配的答题卡文件
+    const files = fs.readdirSync(sheetDir);
+    // 匹配格式: chinese_专题01_answer_sheet.html
+    const sheetFile = files.find(f => f.includes(subject) && f.includes('answer_sheet'));
+    
+    if (!sheetFile) {
+        return res.status(404).json({ success: false, error: '答题卡不存在', files: files });
+    }
+    
+    const sheetPath = path.join(sheetDir, sheetFile);
+    res.sendFile(sheetPath);
+});
+
 module.exports = router;

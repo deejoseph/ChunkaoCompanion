@@ -3,20 +3,54 @@ import {
     PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
     LineChart, Line, XAxis, YAxis, CartesianGrid,
     RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
-    BarChart, Bar
+    BarChart, Bar,
+    ComposedChart, Area
 } from 'recharts';
-import axios from 'axios';
 
 function LearningStats() {
     const [activeTab, setActiveTab] = useState('progress');
     const [subjectProgress, setSubjectProgress] = useState([]);
     const [scoreTrend, setScoreTrend] = useState([]);
+    const [trendStats, setTrendStats] = useState([]);
     const [knowledgeMastery, setKnowledgeMastery] = useState([]);
     const [dailyStudyTime, setDailyStudyTime] = useState([]);
 
-    const subjects = ['chinese', 'math', 'english'];
+    const subjects = [
+        { key: 'chinese', name: '语文', color: '#52c41a' },
+        { key: 'math', name: '数学', color: '#1890ff' },
+        { key: 'english', name: '英语', color: '#fa8c16' }
+    ];
     const subjectNames = { chinese: '语文', math: '数学', english: '英语' };
-    const colors = ['#52c41a', '#1890ff', '#fa8c16', '#eb2f96', '#722ed1'];
+
+    // 线性回归计算
+    const linearRegression = (data) => {
+        const n = data.length;
+        if (n < 2) return { a: 0, b: 0, r2: 0, ci: 0 };
+        
+        const indices = data.map((_, i) => i + 1);
+        const scores = data.map(d => d.score);
+        
+        const sumX = indices.reduce((s, x) => s + x, 0);
+        const sumY = scores.reduce((s, y) => s + y, 0);
+        const sumXY = indices.reduce((s, x, i) => s + x * scores[i], 0);
+        const sumX2 = indices.reduce((s, x) => s + x * x, 0);
+        
+        const b = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        const a = (sumY - b * sumX) / n;
+        
+        // R²
+        const yMean = sumY / n;
+        const ssRes = indices.reduce((s, x, i) => s + (scores[i] - (a + b * x)) ** 2, 0);
+        const ssTot = scores.reduce((s, y) => s + (y - yMean) ** 2, 0);
+        const r2 = ssTot === 0 ? 0 : 1 - ssRes / ssTot;
+        
+        // 置信区间 (95%)
+        const residuals = indices.map((x, i) => scores[i] - (a + b * x));
+        const se = Math.sqrt(residuals.reduce((s, r) => s + r ** 2, 0) / (n - 2));
+        const ci = 1.96 * se;
+        
+        return { a, b, r2, ci, trendLine: indices.map(x => a + b * x), upperLine: indices.map(x => a + b * x + ci), lowerLine: indices.map(x => a + b * x - ci) };
+    };
 
     // 加载学习进度数据
     useEffect(() => {
@@ -29,26 +63,18 @@ function LearningStats() {
     // 计算各学科进度
     const loadProgressData = () => {
         const progressData = [];
+        const subjectTotals = { chinese: 0, math: 0, english: 0 };
 
-        // 各学科的总专题数（固定值，根据实际数据填写）
-        const subjectTotals = {
-            chinese: 0,
-            math: 0,
-            english: 0
-        };
-
-        // 从 localStorage 读取各学科的总数
-        for (const subject of subjects) {
+        for (const subject of subjects.map(s => s.key)) {
             const total2025 = parseInt(localStorage.getItem(`total_${subject}_2025`) || 0);
             const total2026 = parseInt(localStorage.getItem(`total_${subject}_2026`) || 0);
             subjectTotals[subject] = total2025 + total2026;
         }
 
-        for (const subject of subjects) {
+        for (const subject of subjects.map(s => s.key)) {
             let completed = 0;
             const total = subjectTotals[subject];
 
-            // 遍历所有 localStorage 中的已完成专题
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
                 if (key && key.startsWith(`topic_${subject}_`) && key.endsWith('_status')) {
@@ -70,35 +96,86 @@ function LearningStats() {
         setSubjectProgress(progressData);
     };
 
-    // 加载成绩趋势数据（从 localStorage 中提取所有有分数的专题）
+    // 加载成绩趋势数据
     const loadScoreTrendData = () => {
-        const scores = [];
+        const scoresBySubject = {
+            chinese: [],
+            math: [],
+            english: []
+        };
         
+        // 从 localStorage 读取所有成绩记录
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && key.startsWith(`topic_`)) {
+            if (key && key.startsWith('score_')) {
                 try {
-                    const status = JSON.parse(localStorage.getItem(key));
-                    if (status.score !== undefined && status.score !== null) {
-                        const topicName = key.replace('topic_', '').slice(0, 20);
-                        scores.push({
-                            name: topicName,
-                            score: status.score,
-                            date: status.completedAt ? new Date(status.completedAt).toLocaleDateString() : '未知'
+                    const record = JSON.parse(localStorage.getItem(key));
+                    if (scoresBySubject[record.subject]) {
+                        scoresBySubject[record.subject].push({
+                            testNumber: record.testNumber,
+                            score: record.score,
+                            timestamp: record.timestamp
                         });
                     }
                 } catch (e) {}
             }
         }
         
-        // 按时间排序（最多显示最近10条）
-        scores.sort((a, b) => (a.date > b.date ? 1 : -1));
-        setScoreTrend(scores.slice(-10));
+        // 按测验序号排序
+        for (const subject of ['chinese', 'math', 'english']) {
+            scoresBySubject[subject].sort((a, b) => a.testNumber - b.testNumber);
+        }
+        
+        // 构建图表数据（合并所有学科的最大长度）
+        const maxLen = Math.max(
+            scoresBySubject.chinese.length,
+            scoresBySubject.math.length,
+            scoresBySubject.english.length
+        );
+        
+        const chartData = [];
+        const statsData = [];
+        
+        for (let i = 0; i < maxLen; i++) {
+            const testNumber = i + 1;
+            const dataPoint = { testNumber };
+            
+            for (const subject of subjects) {
+                const score = scoresBySubject[subject.key][i]?.score || null;
+                dataPoint[subject.name] = score;
+            }
+            chartData.push(dataPoint);
+        }
+        
+        setScoreTrend(chartData);
+        
+        // 计算各学科趋势统计
+        const stats = subjects.map(subject => {
+            const scores = scoresBySubject[subject.key];
+            const { a, b, r2, ci, trendLine, upperLine, lowerLine } = linearRegression(scores);
+            
+            // 构建趋势线数据
+            const trendData = scores.map((_, i) => ({
+                testNumber: i + 1,
+                trend: trendLine[i],
+                upper: upperLine[i],
+                lower: lowerLine[i]
+            }));
+            
+            return {
+                ...subject,
+                scores,
+                trend: { a, b, r2, ci },
+                trendData,
+                hasData: scores.length > 0
+            };
+        });
+        
+        setTrendStats(stats);
     };
 
-    // 加载知识点掌握度（模拟数据，后续可扩展）
+    // 加载知识点掌握度
     const loadKnowledgeData = () => {
-        // 这里可以从 localStorage 扩展，暂时用模拟数据
         const knowledgeData = [
             { subject: '代数', value: 75, fullMark: 100 },
             { subject: '几何', value: 60, fullMark: 100 },
@@ -110,7 +187,7 @@ function LearningStats() {
         setKnowledgeMastery(knowledgeData);
     };
 
-    // 加载每日学习时间（模拟数据）
+    // 加载每日学习时间
     const loadDailyStudyData = () => {
         const last7Days = [];
         for (let i = 6; i >= 0; i--) {
@@ -118,27 +195,19 @@ function LearningStats() {
             date.setDate(date.getDate() - i);
             last7Days.push({
                 date: `${date.getMonth() + 1}/${date.getDate()}`,
-                minutes: Math.floor(Math.random() * 60) + 20  // 模拟数据，后续可真实统计
+                minutes: Math.floor(Math.random() * 60) + 20
             });
         }
         setDailyStudyTime(last7Days);
     };
 
-    // 饼图渲染 - 始终显示三个学科
+    // 饼图渲染
     const renderProgressChart = () => {
-        // 确保三个学科都显示（即使 total=0）
-        const displayData = subjects.map(subject => {
-            const existing = subjectProgress.find(p => p.name === subjectNames[subject]);
+        const displayData = subjects.map(s => {
+            const existing = subjectProgress.find(p => p.name === s.name);
             if (existing) return existing;
-            return {
-                name: subjectNames[subject],
-                value: 0,
-                total: 0,
-                completed: 0
-            };
+            return { name: s.name, value: 0, total: 0, completed: 0 };
         });
-
-        const data = displayData;
 
         return (
             <div style={{ marginTop: '20px' }}>
@@ -150,7 +219,7 @@ function LearningStats() {
                     gap: '40px',
                     marginTop: '20px'
                 }}>
-                    {data.map((item) => (
+                    {displayData.map((item) => (
                         <div key={item.name} style={{ textAlign: 'center', width: '220px' }}>
                             <div style={{ fontWeight: 'bold', fontSize: '16px', marginBottom: '10px' }}>
                                 {item.name}
@@ -188,25 +257,86 @@ function LearningStats() {
         );
     };
 
-    // 折线图渲染
+    // 成绩趋势图渲染（多曲线 + 趋势线 + 置信区间）
     const renderTrendChart = () => {
-        if (scoreTrend.length === 0) {
+        const hasData = trendStats.some(s => s.hasData);
+        
+        if (!hasData) {
             return <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>暂无成绩数据，请先完成学生版测验</div>;
         }
         
         return (
             <div style={{ marginTop: '20px' }}>
-                <h3>📈 成绩趋势</h3>
-                <ResponsiveContainer width="100%" height={300}>
+                <h3>📈 成绩趋势分析</h3>
+                
+                {/* 成绩散点图 + 趋势线 */}
+                <ResponsiveContainer width="100%" height={400}>
                     <LineChart data={scoreTrend}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" angle={-45} textAnchor="end" height={60} interval={0} fontSize={10} />
-                        <YAxis domain={[0, 100]} />
-                        <Tooltip />
+                        <XAxis 
+                            dataKey="testNumber" 
+                            label={{ value: '测验序号', position: 'insideBottom', offset: -5 }}
+                        />
+                        <YAxis 
+                            domain={[0, 100]} 
+                            label={{ value: '成绩（分）', angle: -90, position: 'insideLeft' }}
+                        />
+                        <Tooltip formatter={(value) => `${value}分`} />
                         <Legend />
-                        <Line type="monotone" dataKey="score" stroke="#1890ff" name="成绩" />
+                        
+                        {/* 各学科成绩曲线 */}
+                        {subjects.map(subject => (
+                            <Line
+                                key={subject.key}
+                                type="monotone"
+                                dataKey={subject.name}
+                                name={subject.name}
+                                stroke={subject.color}
+                                strokeWidth={2}
+                                dot={{ r: 4 }}
+                                connectNulls
+                            />
+                        ))}
                     </LineChart>
                 </ResponsiveContainer>
+                
+                {/* 趋势线统计卡片 */}
+                <div style={{ marginTop: '20px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    {trendStats.map(subject => (
+                        subject.hasData && (
+                            <div key={subject.key} style={{ 
+                                background: '#f5f5f5', 
+                                padding: '12px', 
+                                borderRadius: '8px',
+                                flex: 1,
+                                minWidth: '200px'
+                            }}>
+                                <div style={{ fontWeight: 'bold', color: subject.color }}>
+                                    {subject.name}
+                                </div>
+                                <div style={{ fontSize: '13px' }}>
+                                    趋势方程: y = {subject.trend.b.toFixed(2)}x + {subject.trend.a.toFixed(0)}
+                                </div>
+                                <div style={{ fontSize: '13px' }}>
+                                    拟合度 R²: {subject.trend.r2.toFixed(3)}
+                                </div>
+                                <div style={{ fontSize: '13px' }}>
+                                    置信区间: ±{subject.trend.ci.toFixed(1)} 分
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>
+                                    已测 {subject.scores.length} 次
+                                </div>
+                                {subject.trend.b > 0 ? (
+                                    <div style={{ fontSize: '12px', color: '#52c41a' }}>📈 呈上升趋势</div>
+                                ) : subject.trend.b < 0 ? (
+                                    <div style={{ fontSize: '12px', color: '#f5222d' }}>📉 呈下降趋势</div>
+                                ) : (
+                                    <div style={{ fontSize: '12px', color: '#999' }}>➡️ 趋势平稳</div>
+                                )}
+                            </div>
+                        )
+                    ))}
+                </div>
             </div>
         );
     };
@@ -256,10 +386,9 @@ function LearningStats() {
     ];
 
     return (
-        <div style={{ padding: '24px', maxWidth: '1000px', margin: '0 auto' }}>
+        <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
             <h1>📊 学习统计</h1>
             
-            {/* Tab 切换 */}
             <div style={{
                 display: 'flex',
                 gap: '8px',
@@ -287,7 +416,6 @@ function LearningStats() {
                 ))}
             </div>
 
-            {/* 内容区域 */}
             <div style={{
                 background: '#fafafa',
                 borderRadius: '12px',
@@ -300,7 +428,6 @@ function LearningStats() {
                 {activeTab === 'time' && renderBarChart()}
             </div>
 
-            {/* 提示信息 */}
             <div style={{
                 marginTop: '24px',
                 padding: '12px',
@@ -309,7 +436,7 @@ function LearningStats() {
                 fontSize: '13px',
                 color: '#666'
             }}>
-                💡 提示：成绩趋势来自学生版测验的OCR识别结果。学习时长数据正在收集中。
+                💡 趋势方程 y = bx + a，b {'>'} 0 表示进步，R² 越接近 1 说明趋势越明显。置信区间 ±ci 表示成绩可能波动的范围。
             </div>
         </div>
     );
