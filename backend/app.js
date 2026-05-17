@@ -1,11 +1,12 @@
-// 在文件顶部添加引入
-const ocrRouter = require('./routes/ocr');
 const express = require('express');
 const cors = require('cors');
 const { askAI } = require('./services/ollama');
 const docsRouter = require('./routes/docs');
 const examsRouter = require('./routes/exams');
 const listeningRouter = require('./routes/listening');
+const ocrRouter = require('./routes/ocr');
+const aiRouter = require('./routes/ai');
+const banksRouter = require('./routes/banks');
 
 const app = express();
 const PORT = 3001;
@@ -17,7 +18,9 @@ app.use(express.json());
 app.use('/api/docs', docsRouter);
 app.use('/api/exams', examsRouter);
 app.use('/api/listening', listeningRouter);
-app.use('/api/ocr', ocrRouter);  // 添加这行
+app.use('/api/ocr', ocrRouter);
+app.use('/api/ai', aiRouter);
+app.use('/api/banks', banksRouter);
 
 // AI助教接口
 app.post('/api/ai/ask', async (req, res) => {
@@ -58,4 +61,6 @@ app.listen(PORT, () => {
     console.log(`文档接口: GET http://localhost:${PORT}/api/docs/all-topics`);
     console.log(`真题接口: GET http://localhost:${PORT}/api/exams/papers/english/2026`);
     console.log(`OCR接口: POST http://localhost:${PORT}/api/ocr/recognize`);
+    console.log(`AI验证接口: POST http://localhost:${PORT}/api/ai/validate`);
+    console.log(`题库接口: POST http://localhost:${PORT}/api/banks/save`);
 });

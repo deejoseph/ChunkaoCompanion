@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import FloatingAIAssistant from './FloatingAIAssistant';
 import TopicLearning from './TopicLearning';
+import AIAnswerReference from './AIAnswerReference';
 
 function KnowledgeLearning() {
     const [selectedSubject, setSelectedSubject] = useState('chinese');
@@ -340,6 +341,10 @@ function KnowledgeLearning() {
             <FloatingAIAssistant 
                 currentTopic={selectedTopicForLearning?.name} 
                 currentSubject={selectedSubject}
+            />            
+            <AIAnswerReference 
+                currentTopic={selectedTopicForLearning?.name} 
+                subject={selectedSubject}
             />
         </div>
     );

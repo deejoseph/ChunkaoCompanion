@@ -7,15 +7,43 @@ import 'katex/dist/katex.min.css';
 
 const API_BASE = 'http://localhost:3001';
 
+// 模型显示标签映射（根据学科和模型值返回显示文本）
+const getModelDisplayLabel = (subject, modelValue) => {
+  // 数学学科
+  if (subject === 'math') {
+    if (modelValue === 'qwen2-math:1.5b') return '🧮 数学·轻量模式：qwen2-math:1.5b（3-8秒，极速响应）';
+    if (modelValue === 'qwen2.5:7b') return '🧮 数学·快速模式：qwen2.5:7b（5-15秒，适合基础题）';
+    if (modelValue === 'qwen2-math:7b') return '🧮 数学·标准模式：qwen2-math:7b（15-30秒，数学专项）';
+    if (modelValue === 'qwen2.5:14b') return '🧮 数学·专业模式：qwen2.5:14b（20-40秒，适合难题）';
+    if (modelValue === 'qwen2.5-coder:7b') return '🧮 数学·参考模式：qwen2.5-coder:7b（30-60秒，公式美观）';
+    return `🧮 数学·${modelValue}`;
+  }
+  
+  // 语文学科
+  if (subject === 'chinese') {
+    if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
+    if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
+    if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+    return `📖 语文·${modelValue}`;
+  }
+  
+  // 英语学科
+  if (subject === 'english') {
+    if (modelValue === 'gemma3:4b') return '🇬🇧 英语·快速模式：gemma3:4b（5-15秒，英语专用）';
+    if (modelValue === 'qwen2.5:7b') return '🇬🇧 英语·标准模式：qwen2.5:7b（5-15秒，通用能力）';
+    if (modelValue === 'qwen2.5:14b') return '🇬🇧 英语·专业模式：qwen2.5:14b（20-40秒，阅读/写作）';
+    if (modelValue === 'qwen2.5-coder:7b') return '🇬🇧 英语·参考模式：qwen2.5-coder:7b（30-60秒，翻译优化）';
+    return `🇬🇧 英语·${modelValue}`;
+  }
+  
+  return modelValue;
+};
+
 function AIAssistant() {
-    const [subject, setSubject] = useState('math');
     const [question, setQuestion] = useState('');
     const [answer, setAnswer] = useState('');
     const [loading, setLoading] = useState(false);
     const [modelInfo, setModelInfo] = useState('');
-    const [currentModel, setCurrentModel] = useState('');
-    const [modelDisplayName, setModelDisplayName] = useState('');
-    const [modelChanged, setModelChanged] = useState(false);
     const [showFormulaInput, setShowFormulaInput] = useState(false);
     const [formulaLatex, setFormulaLatex] = useState('');
     const [uploading, setUploading] = useState(false);
@@ -26,61 +54,78 @@ function AIAssistant() {
     const [textOcrSavedFile, setTextOcrSavedFile] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     
-    // 监听模型切换事件（来自系统设置）
-    useEffect(() => {
-        const handleModelChange = (event) => {
-            console.log('收到模型切换事件:', event.detail?.model);
-
-            // 获取新模型名称
-            const newModelPref = event.detail?.model || localStorage.getItem('ai_model') || 'math_medium';
-            const modelNames = {
-                math_fast: { name: '快速模式 (qwen2-math:1.5b)', tip: '⚡ 适合普通题型，速度最快' },
-                math_medium: { name: '中速模式 (qwen2-math:7b)', tip: '🚀 适合疑难题目，准确率高' },
-                math_balanced: { name: '均衡模式 (qwen2.5-coder:7b)', tip: '🎨 公式排版更稳定，兼顾推理' }
-            };
-
-            const newModel = modelNames[newModelPref] || modelNames.math_medium;
-
-            // 立即显示新模型名称（不等待提问）
-            setCurrentModel(newModel.name);
-            setModelInfo(`使用模型: ${newModel.name} - ${newModel.tip}`);
-
-            // 清空之前的回答
-            setAnswer('');
-
-            // 显示提示
-            alert(`模型已切换为: ${newModel.name}\n下次提问将使用新模型`);
+    // 当前学科
+    const [currentSubject, setCurrentSubject] = useState('math');
+    
+    // 学科模型配置（每个学科独立的模型）
+    const [subjectModels, setSubjectModels] = useState(() => {
+        const saved = localStorage.getItem('subject_models');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) {
+                console.error('解析学科模型配置失败', e);
+            }
+        }
+        // 默认配置
+        return {
+            math: 'qwen2-math:7b',
+            chinese: 'qwen2.5:14b',
+            english: 'gemma3:4b'
         };
-
-        window.addEventListener('modelPreferenceChanged', handleModelChange);
-        return () => window.removeEventListener('modelPreferenceChanged', handleModelChange);
+    });
+    
+    // 获取当前学科对应的模型
+    const currentModel = subjectModels[currentSubject] || 'qwen2.5:14b';
+    
+    // 获取当前学科模型的显示标签
+    const currentModelLabel = getModelDisplayLabel(currentSubject, currentModel);
+    
+    // 初始化时从 localStorage 加载配置
+    useEffect(() => {
+        const saved = localStorage.getItem('subject_models');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setSubjectModels(parsed);
+            } catch (e) {
+                console.error('解析失败', e);
+            }
+        }
     }, []);
-
-    // 在 UI 中显示提示
-    {modelChanged && (
-        <div style={{
-            background: '#fff7e6',
-            border: '1px solid #ffc53d',
-            borderRadius: '8px',
-            padding: '8px 12px',
-            marginBottom: '15px',
-            fontSize: '13px'
-        }}>
-            ⚙️ 模型已切换，下次提问将使用新模型
-        </div>
-    )}
-
-    // 初始化时显示当前模型
+    
+    // 监听学科模型配置变更
     useEffect(() => {
-        const currentPref = localStorage.getItem('ai_model') || 'math_medium';
-        const modelNames = {
-            math_fast: { name: '快速模式 (qwen2-math:1.5b)', tip: '⚡ 适合普通题型，速度最快' },
-            math_medium: { name: '中速模式 (qwen2-math:7b)', tip: '🚀 适合疑难题目，准确率高' },
-            math_balanced: { name: '均衡模式 (qwen2.5-coder:7b)', tip: '🎨 公式排版更稳定，兼顾推理' }
+        const handleModelsChange = (event) => {
+            const newModels = event.detail;
+            if (newModels) {
+                setSubjectModels(newModels);
+                setModelInfo(`模型配置已更新`);
+                setTimeout(() => setModelInfo(''), 2000);
+            }
         };
-        const currentModelInfo = modelNames[currentPref] || modelNames.math_medium;
-        setCurrentModel(currentModelInfo.name);
-        setModelInfo(`当前模型: ${currentModelInfo.name} - ${currentModelInfo.tip}`);
+        
+        window.addEventListener('modelsChanged', handleModelsChange);
+        return () => window.removeEventListener('modelsChanged', handleModelsChange);
+    }, []);
+    
+    // 监听 localStorage 变化（跨标签页同步）
+    useEffect(() => {
+        const handleStorageChange = (e) => {
+            if (e.key === 'subject_models' && e.newValue) {
+                try {
+                    const newModels = JSON.parse(e.newValue);
+                    setSubjectModels(newModels);
+                    setModelInfo(`模型配置已更新`);
+                    setTimeout(() => setModelInfo(''), 2000);
+                } catch (e) {
+                    console.error('解析失败', e);
+                }
+            }
+        };
+        
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
     }, []);
 
     const subjects = [
@@ -145,6 +190,7 @@ function AIAssistant() {
             if (response.data.success) {
                 setTextOcrContent(response.data.text || '');
                 setTextOcrSavedFile(response.data.savedFile || '');
+                setShowTextOcrModal(true);
             } else {
                 alert(`图文识别失败：${response.data.error || '未知错误'}`);
             }
@@ -184,6 +230,16 @@ function AIAssistant() {
         setShowTextOcrModal(false);
     };
 
+    const getSubjectPrompt = () => {
+        const prompts = {
+            math: '你是一位上海春考数学阅卷老师，请用清晰、准确的数学语言解答问题，涉及公式时使用 LaTeX 格式。',
+            chinese: '你是一位上海春考语文阅卷老师，请严格依据原文和语境作答，默写题务必逐字准确，阅读理解要分析到位。',
+            english: '你是一位上海春考英语阅卷老师，请注意语法准确性和搭配恰当性，阅读理解要抓住关键信息。',
+            essay: '你是一位上海春考作文阅卷老师，请从立意、结构、语言、素材等角度进行批改，给出具体修改建议。'
+        };
+        return prompts[currentSubject] || prompts.math;
+    };
+
     const askAI = async () => {
         if (!question.trim()) {
             alert('请输入你的问题。');
@@ -193,30 +249,20 @@ function AIAssistant() {
         setLoading(true);
         setAnswer('');
         setModelInfo('');
-        setCurrentModel('');
 
-        const userPreference = {
-            math: localStorage.getItem('ai_model') || 'math_balanced'
-        };
-
-        console.log('发送的请求体:', {
-            subject,
-            question,
-            userPreference
-        });
+        const subjectPrompt = getSubjectPrompt();
+        const fullQuestion = `${subjectPrompt}\n\n学生问题：${question}`;
 
         try {
             const response = await axios.post(`${API_BASE}/api/ai/ask`, {
-                subject: subject,
-                question: question,
-                userPreference: userPreference
+                subject: currentSubject,
+                question: fullQuestion,
+                model: currentModel  // 使用当前学科对应的模型
             });
 
             if (response.data.success) {
                 setAnswer(response.data.answer);
-                const displayName = response.data.modelDisplayName || response.data.model;
-                setCurrentModel(displayName);
-                setModelInfo(`使用模型: ${displayName}`);
+                setModelInfo(`使用模型: ${currentModelLabel}`);
             } else {
                 setAnswer(`错误: ${response.data.error}`);
             }
@@ -227,34 +273,41 @@ function AIAssistant() {
         }
     };
 
-    const getModelTip = () => {
-        const modelMap = {
-            快速模式: '适合普通题型，速度最快',
-            中速模式: '适合疑难题目，准确率高',
-            均衡模式: '适合需要美观公式的场景'
-        };
-
-        for (const [key, tip] of Object.entries(modelMap)) {
-            if (currentModel.includes(key)) return tip;
+    const getSubjectIcon = () => {
+        switch(currentSubject) {
+            case 'chinese': return '📖';
+            case 'math': return '🧮';
+            case 'english': return '🇬🇧';
+            case 'essay': return '✍️';
+            default: return '🤖';
         }
-        return '难题可切换模型对比答案（点击顶部设置）';
+    };
+
+    const getSubjectColor = () => {
+        switch(currentSubject) {
+            case 'chinese': return '#52c41a';
+            case 'math': return '#1890ff';
+            case 'english': return '#fa8c16';
+            case 'essay': return '#eb2f96';
+            default: return '#1890ff';
+        }
     };
 
     return (
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
-            <h1>AI 助教</h1>
+            <h1>{getSubjectIcon()} AI 助教 - {subjects.find(s => s.value === currentSubject)?.label || '数学'}</h1>
 
             <div style={{ marginBottom: '20px' }}>
                 <label style={{ marginRight: '10px' }}>选择学科：</label>
                 {subjects.map(s => (
                     <button
                         key={s.value}
-                        onClick={() => setSubject(s.value)}
+                        onClick={() => setCurrentSubject(s.value)}
                         style={{
                             margin: '0 5px',
                             padding: '8px 16px',
-                            background: subject === s.value ? s.color : '#f0f0f0',
-                            color: subject === s.value ? 'white' : 'black',
+                            background: currentSubject === s.value ? s.color : '#f0f0f0',
+                            color: currentSubject === s.value ? 'white' : 'black',
                             border: 'none',
                             borderRadius: '4px',
                             cursor: 'pointer'
@@ -265,21 +318,40 @@ function AIAssistant() {
                 ))}
             </div>
 
-            {currentModel && (
+            {/* 显示当前模型 - 根据学科显示对应的模型 */}
+            <div style={{
+                background: '#e6f7ff',
+                padding: '10px 15px',
+                borderRadius: '8px',
+                marginBottom: '15px',
+                border: '1px solid #91d5ff'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span>
+                        <span style={{ fontSize: '16px', marginRight: '8px' }}>{getSubjectIcon()}</span>
+                        <strong>{subjects.find(s => s.value === currentSubject)?.label}</strong> 当前模型：<strong style={{ color: getSubjectColor() }}>{currentModelLabel}</strong>
+                    </span>
+                </div>
+                <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>
+                    💡 提示：可在顶部 ⚙️ 系统设置中为每个学科单独配置模型
+                </div>
+            </div>
+
+            {modelInfo && (
                 <div style={{
-                    background: '#e6f7ff',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    marginBottom: '15px',
-                    border: '1px solid #91d5ff'
+                    background: '#f6ffed',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    marginBottom: '12px',
+                    fontSize: '12px',
+                    color: '#52c41a',
+                    border: '1px solid #b7eb8f'
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                        <span>当前模型：<strong>{currentModel}</strong></span>
-                        <span style={{ fontSize: '13px', color: '#666' }}>{getModelTip()}</span>
-                    </div>
+                    {modelInfo}
                 </div>
             )}
 
+            {/* 其余 UI 代码保持不变... */}
             <div style={{
                 marginBottom: '15px',
                 display: 'flex',
@@ -517,7 +589,7 @@ function AIAssistant() {
                 </div>
             )}
 
-            {textOcrContent && (
+            {textOcrContent && !showTextOcrModal && (
                 <div style={{
                     marginBottom: '15px',
                     padding: '14px',
@@ -600,22 +672,16 @@ function AIAssistant() {
                     style={{
                         padding: '10px 24px',
                         fontSize: '16px',
-                        background: (loading || !question.trim() || uploading || textOcrUploading) ? '#ccc' : '#1890ff',
+                        background: (loading || !question.trim() || uploading || textOcrUploading) ? '#ccc' : getSubjectColor(),
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
                         cursor: (loading || !question.trim() || uploading || textOcrUploading) ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    {loading ? 'AI 思考中...' : '提问'}
+                    {loading ? 'AI 思考中...' : `向 ${subjects.find(s => s.value === currentSubject)?.label} AI 提问`}
                 </button>
             </div>
-
-            {modelInfo && (
-                <div style={{ marginBottom: '10px', color: '#666', fontSize: '12px' }}>
-                    {modelInfo}
-                </div>
-            )}
 
             {answer && (
                 <div style={{
@@ -674,7 +740,7 @@ function AIAssistant() {
                                 }}
                                 aria-label="关闭"
                             >
-                                x
+                                ×
                             </button>
                         </div>
 
