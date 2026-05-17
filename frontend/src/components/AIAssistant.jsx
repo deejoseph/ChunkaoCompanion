@@ -19,13 +19,14 @@ const getModelDisplayLabel = (subject, modelValue) => {
     return `🧮 数学·${modelValue}`;
   }
   
-  // 语文学科
-  if (subject === 'chinese') {
-    if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
-    if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
-    if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
-    return `📖 语文·${modelValue}`;
-  }
+    // 语文学科
+    if (subject === 'chinese') {
+      if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
+      if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
+      if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
+      if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+      return `📖 语文·${modelValue}`;
+    }
   
   // 英语学科
   if (subject === 'english') {

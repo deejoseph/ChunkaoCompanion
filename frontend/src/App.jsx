@@ -44,7 +44,7 @@ function App() {
       options: [
         { value: 'qwen2.5:7b', label: '快速模式：qwen2.5:7b（5-15秒，基础阅读）', description: '适合基础知识、简单阅读理解' },
         { value: 'qwen2.5:14b', label: '专业模式：qwen2.5:14b（20-40秒，作文/阅读）', description: '适合阅读理解分析、作文批改' },
-        { value: 'qwen2.5-coder:7b', label: '参考模式：qwen2.5-coder:7b（30-60秒，规范输出）', description: '适合标准答案生成、默写题' }
+        { value: 'glm4:9b', label: '参考模式：glm4:9b（15-30秒，古文优化）', description: '适合古文理解、文学分析' }  // 替换为 glm4:9b
       ],
       defaultModel: 'qwen2.5:14b'
     },
