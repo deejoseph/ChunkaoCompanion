@@ -318,8 +318,9 @@ router.post('/parse', upload.single('file'), async (req, res) => {
             questions,
             totalQuestions: questions.length,
             pageStart: startPage,
-            pageEnd: endPage,
-            previewText: targetText.slice(0, 3000),
+            pageEnd: endPage,     
+            previewText: targetText,  // 返回完整文本
+            targetText: targetText,                  // 新增完整文本
             message: `Parsed ${questions.length} questions`
         });
     } catch (error) {
@@ -327,6 +328,41 @@ router.post('/parse', upload.single('file'), async (req, res) => {
         if (file && fs.existsSync(file.path)) {
             fs.unlinkSync(file.path);
         }
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ========== 新增：解析校正后的文本接口 ==========
+router.post('/parse-corrected', async (req, res) => {
+    const { correctedText, answerMarker, analysisMarker, questionPattern, pageStart, pageEnd } = req.body;
+
+    if (!correctedText) {
+        return res.status(400).json({ success: false, error: 'No text provided' });
+    }
+
+    const ansMarker = (answerMarker || '【答案】').trim();
+    const anaMarker = (analysisMarker || '【解析】').trim();
+
+    try {
+        console.log(`Parse corrected text length: ${correctedText.length}`);
+        console.log(`Question pattern: ${questionPattern || '(auto)'}, answer marker: ${ansMarker}, analysis marker: ${anaMarker}`);
+
+        const questions = extractQuestions(correctedText, {
+            questionPattern: questionPattern || '',
+            answerMarker: ansMarker,
+            analysisMarker: anaMarker
+        });
+
+        res.json({
+            success: true,
+            questions,
+            totalQuestions: questions.length,
+            pageStart: parseInt(pageStart) || 1,
+            pageEnd: parseInt(pageEnd) || 1,
+            message: `Parsed ${questions.length} questions from corrected text`
+        });
+    } catch (error) {
+        console.error('Parse corrected failed:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

@@ -99,4 +99,39 @@ router.post('/validate', async (req, res) => {
     }
 });
 
+// 在返回答案之前，清理掉"练习 X："等前缀
+function cleanAnswer(answer) {
+    if (!answer) return answer;
+    // 移除开头的"练习 X："、"第X题"等
+    let cleaned = answer.replace(/^练习\s*\d+\s*[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^第\s*\d+\s*题\s*[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^题目[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^最终答案[：:]\s*/g, '');
+    // 提取选择题答案（如从"B. ③④②①"中提取"B"）
+    const match = cleaned.match(/^([A-D])[\.、\s]/);
+    if (match) {
+        return match[1];
+    }
+    return cleaned.trim();
+}
+
+// 在验证接口中，对每个模型的答案调用 cleanAnswer
+router.post('/validate', async (req, res) => {
+    // ... 获取各模型答案
+    
+    const cleanedAnswers = {};
+    for (const [model, answer] of Object.entries(answers)) {
+        cleanedAnswers[model] = cleanAnswer(answer);
+    }
+    
+    const suggestedAnswer = getSuggestedAnswer(cleanedAnswers);
+    
+    res.json({
+        success: true,
+        answers: cleanedAnswers,
+        suggestedAnswer: suggestedAnswer,
+        // ...
+    });
+});
+
 module.exports = router;

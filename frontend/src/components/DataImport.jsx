@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import TextCorrectionModal from './TextCorrectionModal';
+
 
 function DataImport() {
     const [subject, setSubject] = useState('chinese');
@@ -23,6 +25,12 @@ function DataImport() {
     const [newTopic, setNewTopic] = useState('');
     const [showJsonEditor, setShowJsonEditor] = useState(false);
     const [jsonContent, setJsonContent] = useState('');
+    
+    // 文本校正弹窗状态
+    const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+    const [rawPagesText, setRawPagesText] = useState('');
+    const [currentPageRange, setCurrentPageRange] = useState({ start: 1, end: 1 });
+    const [tempFile, setTempFile] = useState(null);
     
     // 解析格式设置
     const [questionPattern, setQuestionPattern] = useState('');  // 题目标记
@@ -61,53 +69,53 @@ function DataImport() {
         return 'qa';
     };
     
-    // ========== 新增：识别具体题型（默写/填空/选择/问答） ==========
+    // ========== 识别具体题型（默写/填空/选择/问答） ==========
     const detectSpecificQuestionType = (content) => {
-        // 名句默写题检测
-        if (content.includes('默写') || content.includes('补写') || content.includes('名篇') || content.includes('名句')) {
-            return { type: 'recite', label: '名句默写' };
-        }
-        // 填空题检测
-        if (/_{2,}|____|（\s*）|\(\s*\)/.test(content)) {
-            return { type: 'fill', label: '填空' };
-        }
-        // 选择题检测
+        // 1. 选择题优先（选项模式）
         if (/[A-D][.．、)]/.test(content) || /^[A-D]\s*[.．、)]/.test(content)) {
-            return { type: 'choice', label: '选择' };
+            return { type: 'choice', label: '选择题' };
         }
-        // 问答题
-        return { type: 'qa', label: '问答' };
+        // 2. 默写题
+        if (content.includes('默写') || content.includes('补写') || content.includes('名篇') || content.includes('名句')) {
+            return { type: 'recite', label: '默写题' };
+        }
+        // 3. 成语题（包含"成语使用恰当"等关键词）
+        if (content.includes('成语') && (content.includes('使用恰当') || content.includes('运用恰当'))) {
+            return { type: 'choice', label: '选择题' };
+        }
+        // 4. 填空题
+        if (/_{2,}|____|（\s*）|\(\s*\)/.test(content)) {
+            return { type: 'fill', label: '填空题' };
+        }
+        // 5. 问答题
+        return { type: 'qa', label: '问答题' };
     };
     
-    // ========== 新增：根据学科+题型生成精准提示词 ==========
-    const generatePrecisePrompt = (subject, questionType, specificType, topicName, content) => {
+    // ========== 根据学科+题型生成精准提示词 ==========
+    const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
         const subjectName = getSubjectLabel();
-        
-        // 基础角色设定
+
         let prompt = `你是上海春考${subjectName}阅卷老师。`;
-        
-        // 根据具体题型添加要求
-        if (specificType === 'recite') {
-            prompt += `\n\n这是一道${topicName ? `「${topicName}」中的` : ''}名句默写题。\n\n【严格要求】\n1. 必须严格依据原文填写，一个字都不能错\n2. 不要自己创作或改写\n3. 不要添加解释或题号\n4. 只输出答案本身，多个空用空格分隔`;
+
+        prompt += `\n\n【输出格式要求】`;
+        prompt += `\n1. 每道题的答案格式为：题号 + 冒号 + 空格 + 答案`;
+        prompt += `\n2. 例如："练习1: D" 或 "第2题: B"`;
+        prompt += `\n3. 不要输出多余的空格或换行`;
+        prompt += `\n4. 不要输出解释或分析过程`;
+
+        if (specificType === 'choice') {
+            prompt += `\n\n这是一道选择题。答案格式：题号: 选项字母`;
+        } else if (specificType === 'recite') {
+            prompt += `\n\n这是一道名句默写题。答案格式：题号: 答案内容`;
         } else if (specificType === 'fill') {
-            prompt += `\n\n这是一道填空题。\n\n【要求】\n1. 根据上下文填写正确答案\n2. 不要输出多余解释\n3. 只输出答案，多个空用空格分隔`;
-        } else if (specificType === 'choice') {
-            prompt += `\n\n这是一道选择题。\n\n【要求】\n1. 只输出正确选项字母（如 A、B、C、D）\n2. 不要输出解释或题号`;
-        } else {
-            prompt += `\n\n这是一道问答题。\n\n【要求】\n1. 只输出标准答案要点\n2. 尽量短句分点\n3. 不要输出解题过程或题号`;
+            prompt += `\n\n这是一道填空题。答案格式：题号: 答案内容`;
         }
-        
-        // 学科特殊要求
-        if (subject === 'chinese') {
-            prompt += `\n\n【语文特别要求】\n- 严格依据原文和语境\n- 默写题必须逐字准确\n- 阅读理解要分析到位`;
-        } else if (subject === 'math') {
-            prompt += `\n\n【数学特别要求】\n- 先内部推理核算\n- 最终只输出答案\n- 保留必要的数学符号`;
-        } else if (subject === 'english') {
-            prompt += `\n\n【英语特别要求】\n- 注意语法准确性和搭配恰当性\n- 最终只输出答案本身`;
-        }
-        
-        prompt += `\n\n【题目】\n${content}\n\n请输出答案：`;
-        
+
+        // 传递题号，但不传递完整题目内容（避免重复）
+        prompt += `\n\n【题目编号】\n${questionNumber}`;
+        prompt += `\n\n【题目内容】\n${content}`;
+        prompt += `\n\n请按格式输出答案：`;
+
         return prompt;
     };
 
@@ -183,7 +191,7 @@ function DataImport() {
           return [
             localStorage.getItem('chinese_model_fast') || 'qwen2.5:7b',
             localStorage.getItem('chinese_model_pro') || 'qwen2.5:14b',
-            localStorage.getItem('chinese_model_reference') || 'glm4:9b'  // 改为 glm4:9b
+            localStorage.getItem('chinese_model_reference') || 'glm4:9b'
           ];
         }
         if (actualSubject === 'math') {
@@ -197,18 +205,27 @@ function DataImport() {
     };
 
     const getAISuggestedAnswer = (answers) => {
+        const cleanAnswer = (answer) => {
+            if (!answer) return '';
+            // 移除题号
+            let cleaned = answer.replace(/^练习\s*\d+\s*[：:]\s*/g, '');
+            cleaned = cleaned.replace(/^第\s*\d+\s*题\s*[：:]\s*/g, '');
+            // 提取选择题答案
+            const match = cleaned.match(/^([A-D])[\.、\s]/);
+            if (match) return match[1];
+            return cleaned.trim();
+        };
+
         const values = Object.values(answers || {})
-            .filter(a => a && !String(a).startsWith('错误') && !String(a).startsWith('閿欒'));
+            .map(a => cleanAnswer(a))
+            .filter(a => a && !a.startsWith('错误'));
+
         const counts = {};
         values.forEach(answer => {
             counts[answer] = (counts[answer] || 0) + 1;
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
     };
-
-    useEffect(() => {
-        loadBanks();
-    }, []);
 
     const loadBanks = async () => {
         try {
@@ -360,6 +377,7 @@ function DataImport() {
         }
     };
 
+    // 第一步：解析文档，获取原始文本
     const parseDocument = async () => {
         if (!file) {
             alert('请先选择文档');
@@ -390,6 +408,54 @@ function DataImport() {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
+            console.log('=== 完整响应数据 ===');
+            console.log('response.data:', response.data);
+            console.log('previewText 是否存在:', !!response.data.previewText);
+            console.log('previewText 长度:', response.data.previewText?.length);
+            console.log('targetText 是否存在:', !!response.data.targetText);
+
+            if (response.data.success && response.data.questions) {
+                // 尝试多个可能的字段名
+                const fullText = response.data.previewText || response.data.targetText || response.data.rawText || '';
+                console.log('使用的 fullText 长度:', fullText.length);
+                console.log('fullText 前200字符:', fullText.substring(0, 200));
+
+                setRawPagesText(fullText);
+                setCurrentPageRange({ start: pageRange.start, end: pageRange.end });
+                setTempFile(file);
+
+                // 延迟打开弹窗，确保 state 更新完成
+                setTimeout(() => {
+                    console.log('打开弹窗，rawPagesText 长度:', fullText.length);
+                    setShowCorrectionModal(true);
+                }, 100);
+
+                alert(`文档解析完成！共提取 ${fullText.length} 字符，请在校正弹窗中确认题目格式。`);
+            } else {
+                alert('解析失败，请手动添加题目');
+            }
+        } catch (error) {
+            console.error('解析失败:', error);
+            alert('解析失败，请手动添加题目');
+        }
+        setParsing(false);
+    };
+
+    // 第二步：校正完成后，重新解析
+    const handleCorrectionConfirm = async (correctionData) => {
+        setShowCorrectionModal(false);
+        setParsing(true);
+        
+        try {
+            const response = await axios.post('http://localhost:3001/api/docs/parse-corrected', {
+                correctedText: correctionData.correctedText,
+                answerMarker: correctionData.answerMarker,
+                analysisMarker: correctionData.analysisMarker,
+                questionPattern: correctionData.questionPattern,
+                pageStart: currentPageRange.start,
+                pageEnd: currentPageRange.end
+            });
+
             if (response.data.success && response.data.questions) {
                 const questionsWithTypes = response.data.questions.map(q => ({
                     ...q,
@@ -403,9 +469,10 @@ function DataImport() {
             }
         } catch (error) {
             console.error('解析失败:', error);
-            alert('解析失败，请手动添加题目');
+            alert('解析失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setParsing(false);
         }
-        setParsing(false);
     };
 
     const importFromJson = () => {
@@ -504,21 +571,34 @@ function DataImport() {
             alert('请先填写题目内容');
             return;
         }
-        
+
+        // 提取题号（如"练习1"、"第2题"等）
+        let questionNumber = '';
+        const numberMatch = q.content.match(/^(练习\s*\d+|第\s*\d+\s*题)/);
+        if (numberMatch) {
+            questionNumber = numberMatch[1].replace(/\s+/g, '');
+        } else {
+            questionNumber = `题目${q.number}`;
+        }
+
+        // 清理内容中的题号（避免重复）
+        let cleanContent = q.content.replace(/^(练习\s*\d+[：:]\s*|第\s*\d+\s*题[：:]\s*)/, '');
+
         const specific = detectSpecificQuestionType(q.content);
         const defaultPrompt = generatePrecisePrompt(
             getActualSubject(),
             q.type,
             specific.type,
             topicName,
-            q.content
+            cleanContent,
+            questionNumber
         );
-        
+
         setCurrentValidatingQuestion(q);
         setDetectedInfo({
             subject: getSubjectLabel(),
             questionType: q.type === 'fill' ? '填空题' : q.type === 'choice' ? '选择题' : '问答题',
-            specificType: specific.label,
+            specificType: specific.label,  // 显示"选择题"、"默写题"、"填空题"、"问答题"
             typeLabel: specific.label
         });
         setValidationPrompt(defaultPrompt);
@@ -543,19 +623,12 @@ function DataImport() {
             });
 
             if (response.data.success) {
-                console.log('=== AI验证返回数据 ===');
-                console.log('response.data:', response.data);
-                console.log('suggestedAnswer:', response.data.suggestedAnswer);
-                
                 const suggestedAnswer = response.data.suggestedAnswer || getAISuggestedAnswer(response.data.answers);
                 
-                console.log('最终使用的 suggestedAnswer:', suggestedAnswer);
                 updateQuestion(currentValidatingQuestion.id, 'aiAnswers', response.data.answers);
                 updateQuestion(currentValidatingQuestion.id, 'verdict', response.data.verdict);
                 updateQuestion(currentValidatingQuestion.id, 'aiSuggestedAnswer', suggestedAnswer);
-                updateQuestion(currentValidatingQuestion.id, 'finalAnswer', suggestedAnswer);  // ← 这一行必须有！
-                
-                console.log('已调用 updateQuestion，检查 questions 状态更新');
+                updateQuestion(currentValidatingQuestion.id, 'finalAnswer', suggestedAnswer);
 
                 alert(`验证完成！\nAI建议答案：${suggestedAnswer || '未识别'}\n已自动填入「最终答案」，请核对修改。`);
             } else {
@@ -607,12 +680,31 @@ function DataImport() {
         setBulkValidating(true);
         setBulkValidationResults([]);
 
-        const results = [];
-        // 创建一个副本，用于累积更新
         let updatedQuestions = [...questions];
 
         for (let i = 0; i < batchQuestions.length; i++) {
             const q = batchQuestions[i];
+
+            // 提取题号
+            let questionNumber = '';
+            const numberMatch = q.content.match(/^(练习\s*\d+|第\s*\d+\s*题)/);
+            if (numberMatch) {
+                questionNumber = numberMatch[1].replace(/\s+/g, '');
+            } else {
+                questionNumber = `题目${i + 1}`;
+            }
+
+            let cleanContent = q.content.replace(/^(练习\s*\d+[：:]\s*|第\s*\d+\s*题[：:]\s*)/, '');
+
+            const specific = detectSpecificQuestionType(q.content);
+            const questionPrompt = generatePrecisePrompt(
+                getActualSubject(),
+                q.type,
+                specific.type,
+                topicName,
+                cleanContent,
+                questionNumber
+            );
 
             setBulkValidationResults(prev => [...prev, { 
                 questionId: q.id, 
@@ -624,16 +716,15 @@ function DataImport() {
             try {
                 const response = await axios.post('http://localhost:3001/api/ai/validate', {
                     subject: getActualSubject(),
-                    question: q.content,
+                    question: cleanContent,  // 只传清理后的内容
                     questionType: q.type,
-                    instruction: validationPrompt,
+                    instruction: questionPrompt,
                     models: getValidationModels()
                 });
 
                 if (response.data.success) {
                     const suggestedAnswer = response.data.suggestedAnswer || getAISuggestedAnswer(response.data.answers);
 
-                    // 更新副本中的题目
                     updatedQuestions = updatedQuestions.map(item => {
                         if (item.id === q.id) {
                             return {
@@ -641,16 +732,10 @@ function DataImport() {
                                 aiAnswers: response.data.answers,
                                 verdict: response.data.verdict,
                                 aiSuggestedAnswer: suggestedAnswer,
-                                finalAnswer: suggestedAnswer  // 自动填入最终答案
+                                finalAnswer: suggestedAnswer
                             };
                         }
                         return item;
-                    });
-
-                    results.push({
-                        ...q,
-                        suggestedAnswer,
-                        verdict: response.data.verdict
                     });
 
                     setBulkValidationResults(prev => prev.map(r => 
@@ -659,31 +744,30 @@ function DataImport() {
                             : r
                     ));
                 } else {
-                    results.push({ ...q, suggestedAnswer: null, error: '验证失败' });
                     setBulkValidationResults(prev => prev.map(r => 
                         r.questionId === q.id ? { ...r, status: 'error', error: '验证失败' } : r
                     ));
                 }
             } catch (error) {
                 console.error('验证失败:', error);
-                results.push({ ...q, suggestedAnswer: null, error: error.message });
                 setBulkValidationResults(prev => prev.map(r => 
                     r.questionId === q.id ? { ...r, status: 'error', error: error.message } : r
                 ));
             }
 
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // 更新页面状态，让用户看到进度
+            setQuestions(updatedQuestions);
+
+            // 等待一下再继续下一题
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
-        // 一次性更新所有 questions
         setQuestions(updatedQuestions);
         setBulkValidating(false);
         setShowBulkResults(true);
         setAnswersReviewed(false);
 
-        const successCount = results.filter(r => r.suggestedAnswer).length;
-        const failCount = results.filter(r => r.error).length;
-        alert(`批量验证完成！\n\n✅ 成功：${successCount} 题\n❌ 失败：${failCount} 题\n\nAI建议答案已自动填入「最终答案」，请核对修改。`);
+        alert(`批量验证完成！\n\nAI建议答案已自动填入「最终答案」，请核对修改。`);
     };
 
     const saveQuestionBank = async () => {
@@ -958,10 +1042,31 @@ function DataImport() {
         );
     };
     
-    // ========== 新增：提示词编辑弹窗 ==========
+    // ========== 修复：提示词编辑弹窗（使用本地状态） ==========
     const PromptEditModal = () => {
+        // 本地状态，避免父组件重新渲染导致光标丢失
+        const [localPrompt, setLocalPrompt] = useState('');
+
+        // 当弹窗打开时，同步外部传入的提示词到本地状态
+        useEffect(() => {
+            if (showPromptModal && validationPrompt) {
+                setLocalPrompt(validationPrompt);
+            }
+        }, [showPromptModal, validationPrompt]);
+
+        const handleConfirm = () => {
+            // 将本地编辑的内容同步回父组件
+            setValidationPrompt(localPrompt);
+            setShowPromptModal(false);
+            if (isBatchValidation) {
+                executeBatchValidation();
+            } else {
+                executeValidation();
+            }
+        };
+
         if (!showPromptModal) return null;
-        
+
         return (
             <div style={{
                 position: 'fixed',
@@ -988,7 +1093,7 @@ function DataImport() {
                         <h3 style={{ margin: 0 }}>✏️ AI 验证提示词</h3>
                         <button onClick={() => setShowPromptModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' }}>×</button>
                     </div>
-                    
+
                     {/* 识别结果展示 */}
                     <div style={{
                         background: '#f0f7ff',
@@ -1004,15 +1109,15 @@ function DataImport() {
                             {topicName && <span>📁 专题：<strong>{topicName}</strong></span>}
                         </div>
                     </div>
-                    
+
                     {/* 提示词编辑区 */}
                     <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
-                            验证提示词（可修改）
+                            验证提示词（可直接编辑修改）
                         </label>
                         <textarea
-                            value={validationPrompt}
-                            onChange={(e) => setValidationPrompt(e.target.value)}
+                            value={localPrompt}
+                            onChange={(e) => setLocalPrompt(e.target.value)}
                             rows={12}
                             style={{
                                 width: '100%',
@@ -1023,9 +1128,10 @@ function DataImport() {
                                 border: '1px solid #d9d9d9',
                                 resize: 'vertical'
                             }}
+                            placeholder="可以在这里编辑或修改提示词..."
                         />
                     </div>
-                    
+
                     {/* 提示说明 */}
                     <div style={{
                         background: '#f6ffed',
@@ -1038,7 +1144,7 @@ function DataImport() {
                     }}>
                         💡 提示：提示词越具体，AI回答越准确。可以根据题目特点添加额外要求。
                     </div>
-                    
+
                     {/* 按钮 */}
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                         <button
@@ -1048,7 +1154,7 @@ function DataImport() {
                             取消
                         </button>
                         <button
-                            onClick={isBatchValidation ? executeBatchValidation : executeValidation}
+                            onClick={handleConfirm}
                             style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                         >
                             {isBatchValidation ? `开始验证 ${batchQuestions.length} 道题目` : '开始验证'}
@@ -1072,6 +1178,18 @@ function DataImport() {
             {/* 弹窗 */}
             <BulkValidationModal />
             <PromptEditModal />
+            <TextCorrectionModal
+                key={showCorrectionModal ? 'open' : 'closed'}
+                isOpen={showCorrectionModal}
+                onClose={() => setShowCorrectionModal(false)}
+                onConfirm={handleCorrectionConfirm}
+                initialText={rawPagesText || ''}  // 确保是字符串，不为 undefined
+                pageStart={currentPageRange.start}
+                pageEnd={currentPageRange.end}
+                defaultAnswerMarker={answerMarker}
+                defaultAnalysisMarker={analysisMarker}
+                defaultQuestionPattern={questionPattern}
+            />
             
             {/* 工具栏 */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
@@ -1582,7 +1700,7 @@ function DataImport() {
                 marginTop: '20px'
             }}>
                 <div style={{ flex: 1, fontSize: '12px', color: '#666' }}>
-                    💡 操作流程：导出JSON → 手动修改 finalAnswer → 保存到答案库
+                    💡 操作流程：解析文档 → 校正格式 → 导入题目 → AI验证 → 确认答案 → 保存
                 </div>
                 <button
                     onClick={prepareBatchValidation}
@@ -1596,7 +1714,7 @@ function DataImport() {
                     disabled={questions.length === 0}
                     style={{ padding: '10px 20px', background: '#fa8c16', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                 >
-                    📤 第一步：导出 JSON（供检查修改）
+                    📤 导出 JSON
                 </button>
                 <button
                     onClick={saveQuestionBank}
@@ -1611,7 +1729,7 @@ function DataImport() {
                     }}
                     title={!allFinalAnswersFilled ? `还有 ${emptyFinalCount} 道题目的「最终答案」未填写` : ""}
                 >
-                    💾 第二步：保存到答案库（确认后）
+                    💾 保存到答案库
                 </button>
             </div>
         </div>
