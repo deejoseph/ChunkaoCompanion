@@ -6,6 +6,7 @@ import './App.css';
 import ExamPapers from './components/ExamPapers';
 import ListeningLearning from './components/ListeningLearning';
 import LearningStats from './components/LearningStats';
+import UserProfile from './components/UserProfile';
 import SpeakingPractice from './components/Speaking/SpeakingPractice';
 import DataImport from './components/DataImport';
 
@@ -16,6 +17,26 @@ function App() {
   const [processing, setProcessing] = useState(false);
   const [processLog, setProcessLog] = useState('');
   const [deleteOriginal, setDeleteOriginal] = useState(false);
+    // 添加头像状态
+    const [userAvatar, setUserAvatar] = useState(null);
+    
+    // 监听头像变化
+    useEffect(() => {
+        const loadAvatar = () => {
+            const profile = localStorage.getItem('user_profile');
+            if (profile) {
+                try {
+                    const parsed = JSON.parse(profile);
+                    setUserAvatar(parsed.avatar);
+                } catch (e) {}
+            }
+        };
+        loadAvatar();
+
+        // 监听 storage 变化，跨标签页同步
+        window.addEventListener('storage', loadAvatar);
+        return () => window.removeEventListener('storage', loadAvatar);
+    }, []);
 
   // ========== 学科模型配置（核心） ==========
   const SUBJECT_MODELS_CONFIG = {
@@ -226,7 +247,27 @@ function App() {
           <button onClick={() => setActiveTab('import')} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="新资料采集">📥</button>
           <button onClick={() => setShowSettingsModal(true)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="系统设置">⚙️</button>
           <button onClick={() => setActiveTab('stats')} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="学习统计">📊</button>
-          <button style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="学习进度">📈</button>
+        <button 
+            onClick={() => setActiveTab('profile')} 
+            style={{ 
+                background: 'transparent', 
+                border: 'none', 
+                color: 'white', 
+                fontSize: 'clamp(16px, 4vw, 20px)', 
+                cursor: 'pointer', 
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+            }} 
+            title="我的"
+        >
+            {userAvatar ? (
+                <img src={userAvatar} alt="avatar" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+                '👤'
+            )}
+        </button>
           <button style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="帮助">ℹ️</button>
         </div>
       </div>
@@ -238,6 +279,7 @@ function App() {
     {activeTab === 'listening' && <ListeningLearning />}
     {activeTab === 'speaking' && <SpeakingPractice />}
     {activeTab === 'stats' && <LearningStats />}
+    {activeTab === 'profile' && <UserProfile />}
     {activeTab === 'import' && <DataImport />}
 
       {/* 📄 批量处理Word弹窗 */}
