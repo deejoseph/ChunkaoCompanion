@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
@@ -19,15 +20,15 @@ const getModelDisplayLabel = (subject, modelValue) => {
     return `🧮 数学·${modelValue}`;
   }
   
-    // 语文学科
-    if (subject === 'chinese') {
-      if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
-      if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
-      if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
-      if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
-      return `📖 语文·${modelValue}`;
-    }
-  
+  // 语文学科
+  if (subject === 'chinese') {
+    if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
+    if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
+    if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
+    if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+    return `📖 语文·${modelValue}`;
+  }
+
   // 英语学科
   if (subject === 'english') {
     if (modelValue === 'gemma3:4b') return '🇬🇧 英语·快速模式：gemma3:4b（5-15秒，英语专用）';
@@ -94,6 +95,53 @@ function AIAssistant() {
             }
         }
     }, []);
+    
+    // 粘贴即识别公式
+    useEffect(() => {
+        const handlePasteForFormula = async (e) => {
+            if (!showFormulaInput) return;
+            
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            
+            for (const item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    await handlePastedFormula(file);
+                    break;
+                }
+            }
+        };
+        
+        window.addEventListener('paste', handlePasteForFormula);
+        return () => window.removeEventListener('paste', handlePasteForFormula);
+    }, [showFormulaInput]);
+    
+    // 处理粘贴的公式图片
+    const handlePastedFormula = async (file) => {
+        if (!file) return;
+        
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        try {
+            const response = await axios.post(`${API_BASE}/api/ocr/recognize`, formData);
+            if (response.data.success) {
+                const latex = response.data.latex || '';
+                setRecognizedFormulas(prev => [...prev, { id: Date.now(), latex }]);
+                alert(`公式已识别，可在下方预览后插入`);
+            } else {
+                alert(`识别失败：${response.data.error || '未知错误'}`);
+            }
+        } catch (error) {
+            console.error('公式识别失败:', error);
+            alert('识别失败，请重试');
+        } finally {
+            setUploading(false);
+        }
+    };
     
     // 监听学科模型配置变更
     useEffect(() => {
@@ -231,12 +279,62 @@ function AIAssistant() {
         setShowTextOcrModal(false);
     };
 
+    // ========== 修改：要求模型输出 Markdown 格式 ==========
     const getSubjectPrompt = () => {
         const prompts = {
-            math: '你是一位上海春考数学阅卷老师，请用清晰、准确的数学语言解答问题，涉及公式时使用 LaTeX 格式。',
-            chinese: '你是一位上海春考语文阅卷老师，请严格依据原文和语境作答，默写题务必逐字准确，阅读理解要分析到位。',
-            english: '你是一位上海春考英语阅卷老师，请注意语法准确性和搭配恰当性，阅读理解要抓住关键信息。',
-            essay: '你是一位上海春考作文阅卷老师，请从立意、结构、语言、素材等角度进行批改，给出具体修改建议。'
+            math: `你是一位上海春考数学阅卷老师。
+
+【输出格式要求 - 极其重要】
+请使用规范的 Markdown 格式输出答案：
+
+1. **数学公式**：块级公式用 $$ 包裹，行内公式用 $ 包裹
+   例如：$$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$
+
+2. **步骤列表**：使用有序列表 1. 2. 3.
+   例如：
+   1. 第一步：...
+   2. 第二步：...
+
+3. **重要结论**：使用 **加粗** 强调
+
+4. **不要输出**：题号（如"练习1："）、多余的解释、寒暄语
+
+5. **答案格式**：选择题只输出选项字母，如 **D**
+
+学生问题：`,
+            chinese: `你是一位上海春考语文阅卷老师。
+
+【输出格式要求 - 极其重要】
+请使用规范的 Markdown 格式输出答案：
+
+1. **默写题**：直接输出原文，一字不差
+2. **阅读理解**：分点作答，使用有序列表
+3. **重要内容**：使用 **加粗** 强调
+4. **不要输出**：题号（如"练习1："）、多余的解释
+
+学生问题：`,
+            english: `你是一位上海春考英语阅卷老师。
+
+【输出格式要求 - 极其重要】
+请使用规范的 Markdown 格式输出答案：
+
+1. **语法题**：直接输出答案
+2. **阅读理解**：分点作答
+3. **重要内容**：使用 **加粗** 强调
+4. **不要输出**：题号、多余的解释
+
+学生问题：`,
+            essay: `你是一位上海春考作文阅卷老师。
+
+【输出格式要求 - 极其重要】
+请使用规范的 Markdown 格式输出批改意见：
+
+1. **总体评价**：使用 **加粗** 标注
+2. **优点**：使用无序列表 -
+3. **缺点**：使用无序列表 -
+4. **修改建议**：使用有序列表 1. 2. 3.
+
+学生作文：`
         };
         return prompts[currentSubject] || prompts.math;
     };
@@ -252,22 +350,54 @@ function AIAssistant() {
         setModelInfo('');
 
         const subjectPrompt = getSubjectPrompt();
-        const fullQuestion = `${subjectPrompt}\n\n学生问题：${question}`;
+        const fullQuestion = `${subjectPrompt}\n\n${question}`;
 
         try {
-            const response = await axios.post(`${API_BASE}/api/ai/ask`, {
-                subject: currentSubject,
-                question: fullQuestion,
-                model: currentModel  // 使用当前学科对应的模型
+            // 使用 fetch 进行流式请求
+            const response = await fetch(`${API_BASE}/api/ai/ask/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    subject: currentSubject,
+                    question: fullQuestion,
+                    model: currentModel
+                })
             });
 
-            if (response.data.success) {
-                setAnswer(response.data.answer);
-                setModelInfo(`使用模型: ${currentModelLabel}`);
-            } else {
-                setAnswer(`错误: ${response.data.error}`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullAnswer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.error) {
+                                setAnswer(`错误: ${data.error}`);
+                                break;
+                            }
+                            if (data.content) {
+                                fullAnswer += data.content;
+                                setAnswer(fullAnswer);
+                            }
+                            if (data.done) {
+                                setModelInfo(`使用模型: ${currentModelLabel}`);
+                            }
+                        } catch (e) {
+                            // 忽略解析错误
+                        }
+                    }
+                }
             }
         } catch (error) {
+            console.error('AI请求失败:', error);
             setAnswer(`请求失败: ${error.message}\n\n请确认后端服务已启动 (node app.js)`);
         } finally {
             setLoading(false);
@@ -319,7 +449,7 @@ function AIAssistant() {
                 ))}
             </div>
 
-            {/* 显示当前模型 - 根据学科显示对应的模型 */}
+            {/* 显示当前模型 */}
             <div style={{
                 background: '#e6f7ff',
                 padding: '10px 15px',
@@ -352,7 +482,7 @@ function AIAssistant() {
                 </div>
             )}
 
-            {/* 其余 UI 代码保持不变... */}
+            {/* OCR 工具栏 */}
             <div style={{
                 marginBottom: '15px',
                 display: 'flex',
@@ -374,28 +504,33 @@ function AIAssistant() {
                         opacity: uploading || textOcrUploading ? 0.6 : 1
                     }}
                 >
-                    手动输入 LaTeX 公式
+                    📝 手动输入/粘贴公式
                 </button>
 
-                <label style={{
-                    padding: '6px 14px',
-                    background: '#f0f0f0',
-                    border: '1px solid #ccc',
-                    borderRadius: '4px',
-                    cursor: uploading || textOcrUploading ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
-                    display: 'inline-block',
-                    opacity: uploading || textOcrUploading ? 0.6 : 1
-                }}>
-                    拍照识别公式
-                    <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        onChange={handleFormulaUpload}
-                        disabled={uploading || textOcrUploading}
-                    />
-                </label>
+                <button
+                    onClick={() => document.getElementById('formula-file-input').click()}
+                    disabled={uploading || textOcrUploading}
+                    style={{
+                        padding: '6px 14px',
+                        background: '#f0f0f0',
+                        color: '#333',
+                        border: '1px solid #ccc',
+                        borderRadius: '4px',
+                        cursor: uploading || textOcrUploading ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        opacity: uploading || textOcrUploading ? 0.6 : 1
+                    }}
+                >
+                    📸 上传公式截图
+                </button>
+                <input
+                    id="formula-file-input"
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleFormulaUpload}
+                    disabled={uploading || textOcrUploading}
+                />
 
                 <button
                     onClick={() => setShowTextOcrModal(true)}
@@ -411,7 +546,7 @@ function AIAssistant() {
                         opacity: uploading || textOcrUploading ? 0.6 : 1
                     }}
                 >
-                    拍照识别图文
+                    📸 拍照识别图文
                 </button>
 
                 {(uploading || textOcrUploading) && (
@@ -421,6 +556,7 @@ function AIAssistant() {
                 )}
             </div>
 
+            {/* 手动输入公式区域 */}
             {showFormulaInput && !uploading && (
                 <div style={{
                     marginBottom: '15px',
@@ -430,7 +566,7 @@ function AIAssistant() {
                     border: '1px solid #e8e8e8'
                 }}>
                     <textarea
-                        placeholder="输入 LaTeX 公式，如: \frac{1}{2} 或 \sqrt{x^2+y^2}"
+                        placeholder="输入 LaTeX 公式，如: \frac{1}{2} 或 \sqrt{x^2+y^2}（也可直接 Ctrl+V 粘贴公式截图）"
                         rows={2}
                         value={formulaLatex}
                         onChange={(e) => setFormulaLatex(e.target.value)}
@@ -445,6 +581,9 @@ function AIAssistant() {
                             resize: 'vertical'
                         }}
                     />
+                    <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                        💡 提示：截图后直接 Ctrl+V 粘贴到输入框，自动识别公式
+                    </div>
                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
                         <button
                             onClick={() => {
@@ -499,12 +638,10 @@ function AIAssistant() {
                             取消
                         </button>
                     </div>
-                    <div style={{ fontSize: '11px', color: '#999', marginTop: '8px' }}>
-                        常用写法：分数 \frac{'{'}1{'}'}{'{'}2{'}'}，根号 \sqrt{'{'}2{'}'}，积分 \int_{'{'}a{'}'}^{'{'}b{'}'}。
-                    </div>
                 </div>
             )}
 
+            {/* 识别出的公式列表 */}
             {recognizedFormulas.length > 0 && !uploading && (
                 <div style={{
                     marginBottom: '15px',
@@ -590,6 +727,7 @@ function AIAssistant() {
                 </div>
             )}
 
+            {/* 图文识别内容 */}
             {textOcrContent && !showTextOcrModal && (
                 <div style={{
                     marginBottom: '15px',
@@ -648,6 +786,7 @@ function AIAssistant() {
                 </div>
             )}
 
+            {/* 问题输入框 */}
             <div style={{ marginBottom: '20px' }}>
                 <textarea
                     value={question}
@@ -666,6 +805,7 @@ function AIAssistant() {
                 />
             </div>
 
+            {/* 提问按钮 */}
             <div style={{ marginBottom: '20px' }}>
                 <button
                     onClick={askAI}
@@ -684,6 +824,7 @@ function AIAssistant() {
                 </button>
             </div>
 
+            {/* AI 回答 - 使用 Markdown 渲染 */}
             {answer && (
                 <div style={{
                     background: '#f5f5f5',
@@ -693,16 +834,36 @@ function AIAssistant() {
                     overflow: 'auto',
                     textAlign: 'left'
                 }}>
-                    <h3>AI 回答：</h3>
-                    <ReactMarkdown
-                        remarkPlugins={[remarkMath]}
-                        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: false }]]}
-                    >
-                        {answer}
-                    </ReactMarkdown>
+                    <h3>🤖 AI 回答：</h3>
+                    <div className="markdown-body" style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkMath, remarkGfm]}
+                            rehypePlugins={[rehypeKatex]}
+                            components={{
+                                // 自定义表格样式
+                                table: ({ node, ...props }) => (
+                                    <table style={{ borderCollapse: 'collapse', width: '100%', margin: '16px 0' }} {...props} />
+                                ),
+                                th: ({ node, ...props }) => (
+                                    <th style={{ border: '1px solid #ddd', padding: '8px', background: '#f5f5f5' }} {...props} />
+                                ),
+                                td: ({ node, ...props }) => (
+                                    <td style={{ border: '1px solid #ddd', padding: '8px' }} {...props} />
+                                ),
+                                code: ({ node, inline, ...props }) => (
+                                    inline ? 
+                                        <code style={{ background: '#f0f0f0', padding: '2px 4px', borderRadius: '4px' }} {...props} /> :
+                                        <code style={{ display: 'block', background: '#f0f0f0', padding: '12px', borderRadius: '4px', overflow: 'auto' }} {...props} />
+                                )
+                            }}
+                        >
+                            {answer}
+                        </ReactMarkdown>
+                    </div>
                 </div>
             )}
 
+            {/* 图文识别弹窗 */}
             {showTextOcrModal && (
                 <div
                     style={{
@@ -757,9 +918,9 @@ function AIAssistant() {
                             <strong>建议流程：</strong>
                             <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
                                 <li>先截图或拍照。可以在这个弹窗里直接粘贴剪贴板图片，也可以把其他目录里的图片拖进来；系统会保存到 <code>backend/uploads</code>，避免放错位置。</li>
-                                <li>点击或拖入图片后，使用“拍照识别图文”提取图文混排内容，识别结果会进入“识别出的图文内容”框。</li>
-                                <li>如果题目里有公式，PaddleOCR 可能识别不准。会写 LaTeX 时用“手动输入 LaTeX 公式”；不会写时用“拍照识别公式”，把公式逐一截图识别，再手工插入图文内容框。</li>
-                                <li>确认内容完整后，点击“发送到 AI 助教输入框”，再向 AI 提问。</li>
+                                <li>点击或拖入图片后，使用"拍照识别图文"提取图文混排内容，识别结果会进入"识别出的图文内容"框。</li>
+                                <li>如果题目里有公式，PaddleOCR 可能识别不准。会写 LaTeX 时用"手动输入 LaTeX 公式"；不会写时用"拍照识别公式"，把公式逐一截图识别，再手工插入图文内容框。</li>
+                                <li>确认内容完整后，点击"发送到 AI 助教输入框"，再向 AI 提问。</li>
                             </ol>
                         </div>
 

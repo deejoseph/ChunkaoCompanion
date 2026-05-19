@@ -377,7 +377,7 @@ function DataImport() {
         }
     };
 
-    // 第一步：解析文档，获取原始文本
+    // 第一步：只提取原始文本，不解析
     const parseDocument = async () => {
         if (!file) {
             alert('请先选择文档');
@@ -399,44 +399,34 @@ function DataImport() {
         formData.append('file', file);
         formData.append('pageStart', pageRange.start);
         formData.append('pageEnd', pageRange.end);
-        formData.append('questionPattern', questionPattern);
-        formData.append('answerMarker', answerMarker);
-        formData.append('analysisMarker', analysisMarker);
 
         try {
-            const response = await axios.post('http://localhost:3001/api/docs/parse', formData, {
+            // 使用新的 extract-raw 接口，只提取原始文本
+            const response = await axios.post('http://localhost:3001/api/docs/extract-raw', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            console.log('=== 完整响应数据 ===');
-            console.log('response.data:', response.data);
-            console.log('previewText 是否存在:', !!response.data.previewText);
-            console.log('previewText 长度:', response.data.previewText?.length);
-            console.log('targetText 是否存在:', !!response.data.targetText);
+            console.log('=== 原始文本提取 ===');
+            console.log('文本长度:', response.data.text?.length);
 
-            if (response.data.success && response.data.questions) {
-                // 尝试多个可能的字段名
-                const fullText = response.data.previewText || response.data.targetText || response.data.rawText || '';
-                console.log('使用的 fullText 长度:', fullText.length);
-                console.log('fullText 前200字符:', fullText.substring(0, 200));
-
+            if (response.data.success) {
+                const fullText = response.data.text || '';
                 setRawPagesText(fullText);
                 setCurrentPageRange({ start: pageRange.start, end: pageRange.end });
                 setTempFile(file);
 
-                // 延迟打开弹窗，确保 state 更新完成
                 setTimeout(() => {
                     console.log('打开弹窗，rawPagesText 长度:', fullText.length);
                     setShowCorrectionModal(true);
                 }, 100);
 
-                alert(`文档解析完成！共提取 ${fullText.length} 字符，请在校正弹窗中确认题目格式。`);
+                alert(`文档解析完成！共提取 ${fullText.length} 字符，请在校正弹窗中标记题目、答案和解析格式。`);
             } else {
-                alert('解析失败，请手动添加题目');
+                alert('提取失败，请手动添加题目');
             }
         } catch (error) {
-            console.error('解析失败:', error);
-            alert('解析失败，请手动添加题目');
+            console.error('提取失败:', error);
+            alert('提取失败: ' + (error.response?.data?.error || error.message));
         }
         setParsing(false);
     };
@@ -445,7 +435,7 @@ function DataImport() {
     const handleCorrectionConfirm = async (correctionData) => {
         setShowCorrectionModal(false);
         setParsing(true);
-        
+
         try {
             const response = await axios.post('http://localhost:3001/api/docs/parse-corrected', {
                 correctedText: correctionData.correctedText,
@@ -461,9 +451,28 @@ function DataImport() {
                     ...q,
                     type: detectQuestionType(q.content)
                 }));
-                setJsonContent(JSON.stringify(questionsWithTypes, null, 2));
-                setShowJsonEditor(true);
-                alert(`解析成功！共 ${questionsWithTypes.length} 道题目`);
+
+                // 自动导入到题目列表
+                const newQuestions = questionsWithTypes.map((q, idx) => ({
+                    id: Date.now() + idx,
+                    page: q.page || currentPageRange.start,
+                    number: idx + 1,
+                    type: q.type || detectQuestionType(q.content),
+                    content: q.content,
+                    answerFormat: '【答案】',
+                    sourceAnswer: q.sourceAnswer || '',
+                    aiAnswers: q.aiAnswers || {},
+                    aiSuggestedAnswer: q.aiSuggestedAnswer || '',
+                    verdict: q.verdict || null,
+                    finalAnswer: '',
+                    analysis: q.analysis || ''
+                }));
+
+                // 直接设置题目列表（替换）
+                setQuestions(newQuestions);
+                setShowJsonEditor(false);
+
+                alert(`解析成功！共 ${newQuestions.length} 道题目已自动导入`);
             } else {
                 alert('解析失败，请手动添加题目');
             }
@@ -481,7 +490,7 @@ function DataImport() {
             const newQuestions = imported.map((q, idx) => ({
                 id: Date.now() + idx,
                 page: q.page || pageRange.start,
-                number: questions.length + idx + 1,
+                number: idx + 1,  // 重新编号，从1开始
                 type: q.type || detectQuestionType(q.content),
                 content: q.content,
                 answerFormat: '【答案】',
@@ -492,8 +501,11 @@ function DataImport() {
                 finalAnswer: '',
                 analysis: q.analysis || ''
             }));
-            setQuestions([...questions, ...newQuestions]);
+
+            // 修复：替换而不是追加
+            setQuestions(newQuestions);
             setShowJsonEditor(false);
+
             alert(`成功导入 ${newQuestions.length} 道题目\n\n注意：最终答案需要手动确认后填写`);
         } catch (error) {
             alert('JSON 格式错误，请检查');
@@ -683,6 +695,12 @@ function DataImport() {
         let updatedQuestions = [...questions];
 
         for (let i = 0; i < batchQuestions.length; i++) {
+            // 在循环开始时更新进度
+            const progress = Math.round(((i + 1) / batchQuestions.length) * 100);
+            setBulkValidationResults(prev => [...prev.slice(0, -1), { 
+                ...prev[prev.length - 1],  
+            }]);
+            
             const q = batchQuestions[i];
 
             // 提取题号
@@ -879,7 +897,7 @@ function DataImport() {
                     fontSize: '12px'
                 }}
             >
-                📐 手动输入公式
+                📝 手动输入/粘贴公式
             </button>
             <label style={{
                 padding: '4px 10px',
@@ -890,7 +908,7 @@ function DataImport() {
                 fontSize: '12px',
                 display: 'inline-block'
             }}>
-                📸 拍照识别公式
+                📸 上传公式截图
                 <input
                     type="file"
                     accept="image/*"

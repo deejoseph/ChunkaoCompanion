@@ -225,6 +225,51 @@ function TextCorrectionModal({
             clearDraft();
         }
     };
+    
+    // 自动检测常见的答案和解析标记
+    const autoDetectMarkers = () => {
+        const text = editedText;
+        let detectedAnswerMarker = '';
+        let detectedAnalysisMarker = '';
+
+        // 检测答案标记
+        if (text.includes('【答案】')) detectedAnswerMarker = '【答案】';
+        else if (text.includes('【参考答案】')) detectedAnswerMarker = '【参考答案】';
+        else if (text.includes('答案：')) detectedAnswerMarker = '答案：';
+
+        // 检测解析标记
+        if (text.includes('【解析】')) detectedAnalysisMarker = '【解析】';
+        else if (text.includes('【详解】')) detectedAnalysisMarker = '【详解】';
+        else if (text.includes('【常规讲解】')) detectedAnalysisMarker = '【常规讲解】';
+
+        if (detectedAnswerMarker) {
+            setAnswerMarker(detectedAnswerMarker);
+            alert(`检测到答案标记：${detectedAnswerMarker}`);
+        }
+        if (detectedAnalysisMarker) {
+            setAnalysisMarker(detectedAnalysisMarker);
+            alert(`检测到解析标记：${detectedAnalysisMarker}`);
+        }
+        if (!detectedAnswerMarker && !detectedAnalysisMarker) {
+            alert('未检测到常见的答案或解析标记，请手动设置');
+        }
+    };
+    
+    // 添加下划线标记
+    const addUnderline = () => {
+        if (!selectedText) {
+            alert('请先选中需要添加下划线的文字');
+            return;
+        }
+
+        // 用 HTML 标签或特殊标记包裹选中文字
+        const newText = editedText.replace(
+            selectedText,
+            `<u>${selectedText}</u>`
+        );
+        setEditedText(newText);
+        setSelectedText('');
+    };
 
     // 格式化保存时间显示
     const getSaveTimeDisplay = () => {
@@ -334,6 +379,18 @@ function TextCorrectionModal({
                                     placeholder="输入关键词..."
                                 />
                                 <button onClick={handleSearch} style={{ padding: '6px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>查找</button>
+                                <button 
+                                    onClick={autoDetectMarkers} 
+                                    style={{ padding: '6px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                    自动检测标记
+                                </button>
+                                <button 
+                                    onClick={addUnderline}
+                                    style={{ padding: '6px 12px', background: '#13c2c2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                    添加下划线
+                                </button>
                             </div>
                         </div>
 

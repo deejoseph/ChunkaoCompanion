@@ -3,9 +3,28 @@ const axios = require('axios');
 
 const router = express.Router();
 
-const DEFAULT_MODELS = ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5-coder:7b'];
+const DEFAULT_MODELS = ['qwen2.5:7b', 'qwen2.5:14b', 'glm4:9b'];
 const OLLAMA_URL = 'http://localhost:11434/api/generate';
 
+// ========== 辅助函数 ==========
+
+// 清理答案中的题号前缀
+function cleanAnswer(answer) {
+    if (!answer) return answer;
+    // 移除开头的"练习 X："、"第X题"等
+    let cleaned = answer.replace(/^练习\s*\d+\s*[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^第\s*\d+\s*题\s*[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^题目[：:]\s*/g, '');
+    cleaned = cleaned.replace(/^最终答案[：:]\s*/g, '');
+    // 提取选择题答案（如从"B. ③④②①"中提取"B"）
+    const match = cleaned.match(/^([A-D])[\.、\s]/);
+    if (match) {
+        return match[1];
+    }
+    return cleaned.trim();
+}
+
+// 构建验证提示词
 function buildValidationPrompt({ subject, questionType, instruction, question }) {
     const subjectName = { chinese: '语文', math: '数学', english: '英语' }[subject] || subject || '学科';
     const typeName = { fill: '填空题', choice: '选择题', qa: '问答题' }[questionType] || questionType || '题目';
@@ -19,6 +38,7 @@ ${question}
 最终答案：`;
 }
 
+// 调用单个模型
 async function askModel(model, question, options = {}) {
     const prompt = buildValidationPrompt({ ...options, question });
 
@@ -29,21 +49,23 @@ async function askModel(model, question, options = {}) {
             stream: false,
             options: {
                 temperature: 0.1,
-                num_predict: 180
+                num_predict: 512
             }
         }, {
             timeout: 90000
         });
 
-        return String(response.data.response || '')
-            .replace(/^(最终答案|答案)\s*[：:]\s*/i, '')
-            .trim();
+        let answer = String(response.data.response || '');
+        // 清理答案
+        answer = cleanAnswer(answer);
+        return answer;
     } catch (error) {
         console.error(`${model} validation failed:`, error.message);
         return `错误: ${error.message}`;
     }
 }
 
+// 投票得出建议答案
 function voteAnswers(answers) {
     const answerValues = Object.values(answers).filter(a => a && !String(a).startsWith('错误'));
     const counts = {};
@@ -67,6 +89,7 @@ function voteAnswers(answers) {
     return { verdict, suggestedAnswer };
 }
 
+// ========== AI 验证接口 ==========
 router.post('/validate', async (req, res) => {
     const { subject, question, models, questionType, instruction } = req.body;
 
@@ -80,8 +103,11 @@ router.post('/validate', async (req, res) => {
     try {
         for (const model of targetModels) {
             console.log(`Validating with model: ${model}`);
-            answers[model] = await askModel(model, question, { subject, questionType, instruction });
-            console.log(`  ${model}: ${answers[model]}`);
+            const rawAnswer = await askModel(model, question, { subject, questionType, instruction });
+            // 二次清理（确保清理干净）
+            const cleanedAnswer = cleanAnswer(rawAnswer);
+            answers[model] = cleanedAnswer;
+            console.log(`  ${model}: ${cleanedAnswer}`);
         }
 
         const { verdict, suggestedAnswer } = voteAnswers(answers);
@@ -99,39 +125,112 @@ router.post('/validate', async (req, res) => {
     }
 });
 
-// 在返回答案之前，清理掉"练习 X："等前缀
-function cleanAnswer(answer) {
-    if (!answer) return answer;
-    // 移除开头的"练习 X："、"第X题"等
-    let cleaned = answer.replace(/^练习\s*\d+\s*[：:]\s*/g, '');
-    cleaned = cleaned.replace(/^第\s*\d+\s*题\s*[：:]\s*/g, '');
-    cleaned = cleaned.replace(/^题目[：:]\s*/g, '');
-    cleaned = cleaned.replace(/^最终答案[：:]\s*/g, '');
-    // 提取选择题答案（如从"B. ③④②①"中提取"B"）
-    const match = cleaned.match(/^([A-D])[\.、\s]/);
-    if (match) {
-        return match[1];
-    }
-    return cleaned.trim();
-}
+// ========== AI 助教问答接口（流式输出） ==========
+router.post('/ask', async (req, res) => {
+    const { subject, question, model } = req.body;
 
-// 在验证接口中，对每个模型的答案调用 cleanAnswer
-router.post('/validate', async (req, res) => {
-    // ... 获取各模型答案
-    
-    const cleanedAnswers = {};
-    for (const [model, answer] of Object.entries(answers)) {
-        cleanedAnswers[model] = cleanAnswer(answer);
+    if (!question) {
+        return res.status(400).json({ success: false, error: '缺少问题内容' });
     }
-    
-    const suggestedAnswer = getSuggestedAnswer(cleanedAnswers);
-    
-    res.json({
-        success: true,
-        answers: cleanedAnswers,
-        suggestedAnswer: suggestedAnswer,
-        // ...
-    });
+
+    const modelName = model || 'qwen2.5:14b';
+    const subjectName = subject === 'math' ? '数学' : subject === 'chinese' ? '语文' : '英语';
+
+    try {
+        // 先尝试 chat 接口（流式），如果不支持则回退到 generate
+        const response = await axios.post('http://localhost:11434/api/generate', {
+            model: modelName,
+            prompt: question,
+            stream: false,
+            options: {
+                temperature: 0.3,
+                num_predict: 2048
+            }
+        });
+
+        let answer = response.data.response || '';
+
+        res.json({
+            success: true,
+            model: modelName,
+            answer: answer
+        });
+    } catch (error) {
+        console.error('AI ask failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ========== AI 助教流式问答接口 ==========
+router.post('/ask/stream', async (req, res) => {
+    const { subject, question, model } = req.body;
+
+    if (!question) {
+        return res.status(400).json({ error: '缺少问题内容' });
+    }
+
+    const modelName = model || 'qwen2.5:14b';
+
+    // 设置 SSE 响应头
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    try {
+        const response = await axios({
+            method: 'POST',
+            url: 'http://localhost:11434/api/generate',
+            data: {
+                model: modelName,
+                prompt: question,
+                stream: true,
+                options: {
+                    temperature: 0.3,
+                    num_predict: 2048
+                }
+            },
+            responseType: 'stream'
+        });
+
+        let fullAnswer = '';
+
+        response.data.on('data', (chunk) => {
+            const lines = chunk.toString().split('\n');
+            for (const line of lines) {
+                if (line.trim()) {
+                    try {
+                        const data = JSON.parse(line);
+                        const content = data.response || '';
+                        if (content) {
+                            fullAnswer += content;
+                            res.write(`data: ${JSON.stringify({ content, done: false })}\n\n`);
+                        }
+                        if (data.done) {
+                            res.write(`data: ${JSON.stringify({ content: '', done: true, fullAnswer })}\n\n`);
+                        }
+                    } catch (e) {
+                        // 忽略解析错误
+                    }
+                }
+            }
+        });
+
+        response.data.on('end', () => {
+            res.end();
+        });
+
+        response.data.on('error', (error) => {
+            console.error('Ollama 流错误:', error);
+            res.write(`data: ${JSON.stringify({ error: error.message, done: true })}\n\n`);
+            res.end();
+        });
+
+    } catch (error) {
+        console.error('AI 流式请求失败:', error);
+        res.write(`data: ${JSON.stringify({ error: error.message, done: true })}\n\n`);
+        res.end();
+    }
 });
 
 module.exports = router;

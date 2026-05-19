@@ -638,6 +638,7 @@ function extractQuestions(text, options) {
     }).filter(q => q.content || q.sourceAnswer);
 }
 
+// 在 parsePDFToPages 函数中，生成文本后添加下划线修复
 function parsePDFToPages(filePath) {
     return new Promise((resolve, reject) => {
         const pdfParser = new PDFParser();
@@ -673,11 +674,22 @@ function parsePDFToPages(filePath) {
                     }
                 }
 
-                return lines.map(line => line.items
+                let pageText = lines.map(line => line.items
                     .sort((a, b) => a.x - b.x)
                     .map(item => item.text)
                     .join(' ')
                 ).join('\n');
+                
+                // ========== 修复下划线 ==========
+                // 检测连续的空白区域，替换为下划线占位符
+                pageText = pageText.replace(/_{2,}/g, '______');
+                pageText = pageText.replace(/　{2,}/g, '______'); // 全角空格
+                pageText = pageText.replace(/\s{4,}/g, (match) => {
+                    // 超过4个连续空格，可能是下划线位置
+                    return '______';
+                });
+                
+                return pageText;
             });
 
             resolve(pages);
@@ -720,5 +732,57 @@ function parsePDFToText(filePath) {
         pdfParser.loadPDF(filePath);
     });
 }
+
+// ========== 新增：只提取原始文本，不做解析 ==========
+router.post('/extract-raw', upload.single('file'), async (req, res) => {
+    const file = req.file;
+    const { pageStart, pageEnd } = req.body;
+
+    if (!file) {
+        return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+
+    try {
+        const filePath = file.path;
+        const ext = path.extname(file.originalname).toLowerCase();
+        let pages = [];
+
+        if (ext === '.pdf') {
+            pages = await parsePDFToPages(filePath);
+        } else if (ext === '.docx') {
+            const result = await mammoth.extractRawText({ path: filePath });
+            pages = splitDocxPages(result.value);
+        } else {
+            throw new Error('Unsupported file format. Please upload PDF or DOCX.');
+        }
+
+        pages = pages.map(cleanText);
+
+        const startPage = Math.max(parseInt(pageStart, 10) || 1, 1);
+        const endPage = Math.min(parseInt(pageEnd, 10) || pages.length, pages.length);
+        const selectedPages = pages.slice(startPage - 1, endPage);
+        const targetText = selectedPages.join('\n\n');
+
+        // 清理临时文件
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        res.json({
+            success: true,
+            text: targetText,
+            totalPages: pages.length,
+            pageStart: startPage,
+            pageEnd: endPage,
+            message: `Extracted ${targetText.length} characters`
+        });
+    } catch (error) {
+        console.error('Extract raw failed:', error);
+        if (file && fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+        }
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 module.exports = router;
