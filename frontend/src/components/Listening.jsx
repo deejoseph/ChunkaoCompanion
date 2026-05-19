@@ -7,6 +7,7 @@ function Listening() {
     const [loading, setLoading] = useState(false);
     const [audioUrl, setAudioUrl] = useState('');
     const [pdfUrl, setPdfUrl] = useState('');
+    const [pdfType, setPdfType] = useState('student'); // 'student' 或 'teacher'
 
     // 加载听力列表
     useEffect(() => {
@@ -26,13 +27,21 @@ function Listening() {
         setLoading(false);
     };
 
-    const openListening = (item) => {
+    const openListening = (item, type = 'student') => {
         setSelectedListening(item);
+        setPdfType(type);
+
         if (item.audioFile) {
-            setAudioUrl(`http://localhost:3001/api/exams/listening/audio/${encodeURIComponent(item.id)}/${encodeURIComponent(item.audioFile)}`);
+            // 直接传递原始文件名，不要编码
+            setAudioUrl(`http://localhost:3001/api/listening/audio/${item.index}/${item.audioFile}`);
         }
-        if (item.pdfFile) {
-            setPdfUrl(`http://localhost:3001/api/exams/listening/pdf/${encodeURIComponent(item.id)}/${encodeURIComponent(item.pdfFile)}`);
+
+        const pdfFile = type === 'teacher' ? item.teacherFile : item.studentFile;
+        if (pdfFile) {
+            // 直接传递原始文件名，不要编码
+            setPdfUrl(`http://localhost:3001/api/listening/pdf/${item.index}/${type}/${pdfFile}`);
+        } else {
+            setPdfUrl('');
         }
     };
 
@@ -57,29 +66,61 @@ function Listening() {
                     <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
                 ) : (
                     <div>
-                        {listeningList.map((item, index) => (
+                        {listeningList.map((item) => (
                             <div
                                 key={item.id}
-                                onClick={() => openListening(item)}
                                 style={{
-                                    padding: '12px',
-                                    margin: '8px 0',
-                                    background: selectedListening?.id === item.id ? '#e6f7ff' : 'transparent',
+                                    marginBottom: '16px',
+                                    border: selectedListening?.id === item.id ? '1px solid #1890ff' : '1px solid #e8e8e8',
                                     borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    border: selectedListening?.id === item.id ? '1px solid #91d5ff' : '1px solid #e8e8e8',
-                                    transition: 'all 0.2s',
-                                    textAlign: 'left'  // 添加左对齐
+                                    overflow: 'hidden'
                                 }}
                             >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span style={{ fontSize: '24px' }}>🎧</span>
-                                    <div>
-                                        <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{item.name}</div>
-                                        <div style={{ fontSize: '11px', color: '#999' }}>
-                                            {item.hasAudio ? '音频' : ''} {item.hasPdf ? ' | 题目+答案' : ''}
-                                        </div>
-                                    </div>
+                                {/* 标题 */}
+                                <div style={{
+                                    padding: '12px',
+                                    background: selectedListening?.id === item.id ? '#e6f7ff' : '#fafafa',
+                                    fontWeight: 'bold',
+                                    fontSize: '14px'
+                                }}>
+                                    {item.name}
+                                </div>
+                                
+                                {/* 两个版本按钮 */}
+                                <div style={{ display: 'flex', borderTop: '1px solid #e8e8e8' }}>
+                                    <button
+                                        onClick={() => openListening(item, 'student')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            background: selectedListening?.id === item.id && pdfType === 'student' ? '#52c41a' : 'white',
+                                            color: selectedListening?.id === item.id && pdfType === 'student' ? 'white' : '#333',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        📖 学生版
+                                        {item.hasStudent && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(无答案)</span>}
+                                    </button>
+                                    <button
+                                        onClick={() => openListening(item, 'teacher')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            background: selectedListening?.id === item.id && pdfType === 'teacher' ? '#fa8c16' : 'white',
+                                            color: selectedListening?.id === item.id && pdfType === 'teacher' ? 'white' : '#333',
+                                            borderLeft: '1px solid #e8e8e8',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            fontSize: '13px',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        👨‍🏫 教师版
+                                        {item.hasTeacher && <span style={{ fontSize: '10px', marginLeft: '4px' }}>(含答案)</span>}
+                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -94,7 +135,7 @@ function Listening() {
                         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎧</div>
                         <div>从左侧选择一套听力训练</div>
                         <div style={{ fontSize: '14px', marginTop: '8px' }}>
-                            包含听力音频 + 题目 + 原文 + 答案
+                            可选择学生版（无答案）或教师版（含答案）
                         </div>
                     </div>
                 ) : (
@@ -107,20 +148,32 @@ function Listening() {
                             paddingBottom: '10px',
                             borderBottom: '2px solid #eee'
                         }}>
-                            <h2 style={{ margin: 0 }}>{selectedListening.name}</h2>
+                            <h2 style={{ margin: 0 }}>
+                                {selectedListening.name} 
+                                <span style={{
+                                    fontSize: '14px',
+                                    marginLeft: '12px',
+                                    padding: '4px 8px',
+                                    background: pdfType === 'teacher' ? '#fa8c16' : '#52c41a',
+                                    color: 'white',
+                                    borderRadius: '4px'
+                                }}>
+                                    {pdfType === 'teacher' ? '教师版（含答案）' : '学生版（无答案）'}
+                                </span>
+                            </h2>
                             {pdfUrl && (
                                 <a
                                     href={pdfUrl}
                                     download
                                     style={{
                                         padding: '6px 16px',
-                                        background: '#52c41a',
+                                        background: '#1890ff',
                                         color: 'white',
                                         textDecoration: 'none',
                                         borderRadius: '4px'
                                     }}
                                 >
-                                    📥 下载题目PDF
+                                    📥 下载PDF
                                 </a>
                             )}
                         </div>
@@ -142,7 +195,7 @@ function Listening() {
                         )}
 
                         {/* PDF展示 */}
-                        {pdfUrl && (
+                        {pdfUrl ? (
                             <div style={{
                                 border: '1px solid #e8e8e8',
                                 borderRadius: '8px',
@@ -158,6 +211,16 @@ function Listening() {
                                     }}
                                     title={selectedListening.name}
                                 />
+                            </div>
+                        ) : (
+                            <div style={{
+                                textAlign: 'center',
+                                padding: '60px',
+                                color: '#999',
+                                background: '#fafafa',
+                                borderRadius: '8px'
+                            }}>
+                                📄 该版本PDF文件不存在
                             </div>
                         )}
                     </div>

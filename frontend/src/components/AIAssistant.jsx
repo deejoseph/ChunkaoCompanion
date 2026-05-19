@@ -56,8 +56,10 @@ function AIAssistant() {
     const [textOcrSavedFile, setTextOcrSavedFile] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     
-    // 当前学科
-    const [currentSubject, setCurrentSubject] = useState('math');
+    // 在 AIAssistant.jsx 顶部添加
+    const [currentSubject, setCurrentSubject] = useState(() => {
+        return localStorage.getItem('ai_subject') || 'math';
+    });
     
     // 学科模型配置（每个学科独立的模型）
     const [subjectModels, setSubjectModels] = useState(() => {
@@ -80,8 +82,38 @@ function AIAssistant() {
     // 获取当前学科对应的模型
     const currentModel = subjectModels[currentSubject] || 'qwen2.5:14b';
     
-    // 获取当前学科模型的显示标签
-    const currentModelLabel = getModelDisplayLabel(currentSubject, currentModel);
+    // 直接从 subjectModels 和 currentSubject 实时计算，确保显示正确
+    const currentModelLabel = (() => {
+        const modelValue = subjectModels[currentSubject];
+        const subject = currentSubject;
+
+        if (subject === 'math') {
+            if (modelValue === 'qwen2-math:1.5b') return '🧮 数学·轻量模式：qwen2-math:1.5b（3-8秒，极速响应）';
+            if (modelValue === 'qwen2.5:7b') return '🧮 数学·快速模式：qwen2.5:7b（5-15秒，适合基础题）';
+            if (modelValue === 'qwen2-math:7b') return '🧮 数学·标准模式：qwen2-math:7b（15-30秒，数学专项）';
+            if (modelValue === 'qwen2.5:14b') return '🧮 数学·专业模式：qwen2.5:14b（20-40秒，适合难题）';
+            if (modelValue === 'qwen2.5-coder:7b') return '🧮 数学·参考模式：qwen2.5-coder:7b（30-60秒，公式美观）';
+            return `🧮 数学·${modelValue}`;
+        }
+
+        if (subject === 'chinese') {
+            if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
+            if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
+            if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
+            if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+            return `📖 语文·${modelValue}`;
+        }
+
+        if (subject === 'english') {
+            if (modelValue === 'gemma3:4b') return '🇬🇧 英语·快速模式：gemma3:4b（5-15秒，英语专用）';
+            if (modelValue === 'qwen2.5:7b') return '🇬🇧 英语·标准模式：qwen2.5:7b（5-15秒，通用能力）';
+            if (modelValue === 'qwen2.5:14b') return '🇬🇧 英语·专业模式：qwen2.5:14b（20-40秒，阅读/写作）';
+            if (modelValue === 'qwen2.5-coder:7b') return '🇬🇧 英语·参考模式：qwen2.5-coder:7b（30-60秒，翻译优化）';
+            return `🇬🇧 英语·${modelValue}`;
+        }
+
+        return modelValue;
+    })();
     
     // 初始化时从 localStorage 加载配置
     useEffect(() => {
@@ -96,6 +128,44 @@ function AIAssistant() {
         }
     }, []);
     
+    // 监听学科模型配置变更 - 确保没有清空 question
+    useEffect(() => {
+        const handleModelsChange = (event) => {
+            const newModels = event.detail;
+            if (newModels) {
+                console.log('模型配置变更:', newModels);
+                setSubjectModels(newModels);
+                // 不要清空 question！
+                // setQuestion('');  ← 确保没有这行
+                setModelInfo(`模型配置已更新，${currentSubject === 'math' ? '数学' : currentSubject === 'chinese' ? '语文' : '英语'}模型已切换`);
+                setTimeout(() => setModelInfo(''), 3000);
+            }
+        };
+
+        window.addEventListener('modelsChanged', handleModelsChange);
+        return () => window.removeEventListener('modelsChanged', handleModelsChange);
+    }, [currentSubject]);
+    
+    // 监听 localStorage 变化 - 确保没有清空 question
+    useEffect(() => {
+        const handleStorageChange = (e) => {
+            if (e.key === 'subject_models' && e.newValue) {
+                try {
+                    const newModels = JSON.parse(e.newValue);
+                    setSubjectModels(newModels);
+                    // 不要清空 question！
+                    setModelInfo(`模型配置已更新，${currentSubject === 'math' ? '数学' : currentSubject === 'chinese' ? '语文' : '英语'}模型已切换`);
+                    setTimeout(() => setModelInfo(''), 3000);
+                } catch (e) {
+                    console.error('解析失败', e);
+                }
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
+    }, [currentSubject]);
+
     // 粘贴即识别公式
     useEffect(() => {
         const handlePasteForFormula = async (e) => {
@@ -142,40 +212,6 @@ function AIAssistant() {
             setUploading(false);
         }
     };
-    
-    // 监听学科模型配置变更
-    useEffect(() => {
-        const handleModelsChange = (event) => {
-            const newModels = event.detail;
-            if (newModels) {
-                setSubjectModels(newModels);
-                setModelInfo(`模型配置已更新`);
-                setTimeout(() => setModelInfo(''), 2000);
-            }
-        };
-        
-        window.addEventListener('modelsChanged', handleModelsChange);
-        return () => window.removeEventListener('modelsChanged', handleModelsChange);
-    }, []);
-    
-    // 监听 localStorage 变化（跨标签页同步）
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === 'subject_models' && e.newValue) {
-                try {
-                    const newModels = JSON.parse(e.newValue);
-                    setSubjectModels(newModels);
-                    setModelInfo(`模型配置已更新`);
-                    setTimeout(() => setModelInfo(''), 2000);
-                } catch (e) {
-                    console.error('解析失败', e);
-                }
-            }
-        };
-        
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
 
     const subjects = [
         { value: 'chinese', label: '语文', color: '#52c41a' },
@@ -279,7 +315,7 @@ function AIAssistant() {
         setShowTextOcrModal(false);
     };
 
-    // ========== 修改：要求模型输出 Markdown 格式 ==========
+    // 要求模型输出 Markdown 格式
     const getSubjectPrompt = () => {
         const prompts = {
             math: `你是一位上海春考数学阅卷老师。
@@ -288,18 +324,9 @@ function AIAssistant() {
 请使用规范的 Markdown 格式输出答案：
 
 1. **数学公式**：块级公式用 $$ 包裹，行内公式用 $ 包裹
-   例如：$$x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$$
-
 2. **步骤列表**：使用有序列表 1. 2. 3.
-   例如：
-   1. 第一步：...
-   2. 第二步：...
-
 3. **重要结论**：使用 **加粗** 强调
-
-4. **不要输出**：题号（如"练习1："）、多余的解释、寒暄语
-
-5. **答案格式**：选择题只输出选项字母，如 **D**
+4. **不要输出**：题号、多余的解释
 
 学生问题：`,
             chinese: `你是一位上海春考语文阅卷老师。
@@ -310,7 +337,7 @@ function AIAssistant() {
 1. **默写题**：直接输出原文，一字不差
 2. **阅读理解**：分点作答，使用有序列表
 3. **重要内容**：使用 **加粗** 强调
-4. **不要输出**：题号（如"练习1："）、多余的解释
+4. **不要输出**：题号、多余的解释
 
 学生问题：`,
             english: `你是一位上海春考英语阅卷老师。
@@ -339,6 +366,7 @@ function AIAssistant() {
         return prompts[currentSubject] || prompts.math;
     };
 
+    // 修改 askAI 函数 - 切换模型时保留之前的回答
     const askAI = async () => {
         if (!question.trim()) {
             alert('请输入你的问题。');
@@ -346,8 +374,11 @@ function AIAssistant() {
         }
 
         setLoading(true);
-        setAnswer('');
-        setModelInfo('');
+        // 不清空之前的回答，让用户可以对比
+        // setAnswer('');  // 确保这行是注释掉的
+
+        // 显示正在思考的提示
+        setModelInfo('AI 思考中...');
 
         const subjectPrompt = getSubjectPrompt();
         const fullQuestion = `${subjectPrompt}\n\n${question}`;
@@ -367,6 +398,12 @@ function AIAssistant() {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let fullAnswer = '';
+
+            // 注意：这里不清空之前的回答，新回答会累加？不对，应该用新回答替换
+            // 正确做法：开始新问题时要清空，但切换模型时不应清空
+            // 这里简化处理：每次新问题都清空（这是正常行为）
+            // 切换模型时不清空是通过不调用 askAI 实现的
+            setAnswer('');  // 新问题应该清空，这是合理的
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -840,7 +877,6 @@ function AIAssistant() {
                             remarkPlugins={[remarkMath, remarkGfm]}
                             rehypePlugins={[rehypeKatex]}
                             components={{
-                                // 自定义表格样式
                                 table: ({ node, ...props }) => (
                                     <table style={{ borderCollapse: 'collapse', width: '100%', margin: '16px 0' }} {...props} />
                                 ),

@@ -7,6 +7,8 @@ const listeningRouter = require('./routes/listening');
 const ocrRouter = require('./routes/ocr');
 const aiRouter = require('./routes/ai');
 const banksRouter = require('./routes/banks');
+const apiConfigRouter = require('./routes/apiConfig');
+const whisperRouter = require('./routes/whisper');
 
 const app = express();
 const PORT = 3001;
@@ -15,6 +17,8 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+app.use('/api/whisper', whisperRouter);
+
 // ========== 路由注册（必须在 app.listen 之前） ==========
 app.use('/api/docs', docsRouter);
 app.use('/api/exams', examsRouter);
@@ -22,6 +26,7 @@ app.use('/api/listening', listeningRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/banks', banksRouter);
+app.use('/api/config', apiConfigRouter);
 
 // AI助教接口
 app.post('/api/ai/ask', async (req, res) => {
