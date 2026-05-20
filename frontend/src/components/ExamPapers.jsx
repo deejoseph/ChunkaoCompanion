@@ -10,6 +10,7 @@ function ExamPapers() {
     const [paperUrl, setPaperUrl] = useState('');
     const [hasListening, setHasListening] = useState(false);
     const [listeningAudioUrl, setListeningAudioUrl] = useState('');
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
     const subjects = {
         chinese: { name: '语文', color: '#52c41a', dir: 'chinese' },
@@ -45,7 +46,6 @@ function ExamPapers() {
                 allPapers = [...allPapers, ...examRes.data.papers.map(p => ({ ...p, type: 'exam' }))];
             }
             if (mockRes.data.success && mockRes.data.papers) {
-                // 统一使用 'simulation' 以便模板匹配
                 allPapers = [...allPapers, ...mockRes.data.papers.map(p => ({ ...p, type: 'simulation' }))];
             }
 
@@ -71,11 +71,9 @@ function ExamPapers() {
         }
     };
 
-    // 打开试卷
     const openPaper = (paper) => {
         setSelectedPaper(paper);
         const encodedFilename = encodeURIComponent(paper.filename);
-        // 根据类型选择不同的API路径
         let url;
         if (paper.type === 'exam') {
             url = `http://localhost:3001/api/exams/pdf/${selectedSubject}/${selectedYear}/exam/${encodedFilename}`;
@@ -85,146 +83,199 @@ function ExamPapers() {
         setPaperUrl(url);
     };
 
-    // 分离真题和模拟卷
     const examPapers = papers.filter(p => p.type === 'exam');
     const simulationPapers = papers.filter(p => p.type === 'simulation');
 
     return (
         <div style={{ display: 'flex', height: 'calc(100vh - 60px)' }}>
-            {/* 左侧目录 */}
+            {/* 左侧目录 - 支持收起/展开 */}
             <div style={{
-                width: '280px',
+                width: sidebarCollapsed ? '60px' : '280px',
                 background: '#f5f5f5',
                 borderRight: '1px solid #e8e8e8',
                 overflow: 'auto',
-                padding: '16px'
+                padding: sidebarCollapsed ? '16px 8px' : '16px',
+                transition: 'width 0.3s ease',
+                position: 'relative'
             }}>
-                {/* 学科切换 */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-                    {Object.entries(subjects).map(([key, val]) => (
-                        <button
-                            key={key}
-                            onClick={() => {
-                                setSelectedSubject(key);
-                                setSelectedPaper(null);
-                                setHasListening(false);
-                            }}
-                            style={{
-                                flex: 1,
-                                padding: '8px',
-                                background: selectedSubject === key ? val.color : '#fff',
-                                color: selectedSubject === key ? '#fff' : '#333',
-                                border: `1px solid ${val.color}`,
-                                borderRadius: '4px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            {val.name}
-                        </button>
-                    ))}
-                </div>
-
-                {/* 年份切换 */}
-                <div style={{ marginBottom: '20px' }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
-                        年份筛选
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {years.map(year => (
+                {!sidebarCollapsed ? (
+                    <>
+                        {/* 折叠按钮 */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
                             <button
-                                key={year}
-                                onClick={() => {
-                                    setSelectedYear(year);
-                                    setSelectedPaper(null);
-                                    setHasListening(false);
-                                }}
+                                onClick={() => setSidebarCollapsed(true)}
                                 style={{
-                                    padding: '4px 10px',
-                                    background: selectedYear === year ? '#1890ff' : '#fff',
-                                    color: selectedYear === year ? '#fff' : '#333',
-                                    border: `1px solid ${selectedYear === year ? '#1890ff' : '#ddd'}`,
+                                    background: '#1890ff',
+                                    color: 'white',
+                                    border: 'none',
                                     borderRadius: '4px',
                                     cursor: 'pointer',
+                                    padding: '4px 8px',
                                     fontSize: '12px'
                                 }}
                             >
-                                {year}年
+                                ← 收起
                             </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* 真题列表 */}
-                <div style={{ marginBottom: '20px' }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
-                        📖 真题试卷
-                    </div>
-                    {loading ? (
-                        <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
-                    ) : examPapers.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '12px' }}>
-                            暂无{selectedYear}年真题
                         </div>
-                    ) : (
-                        examPapers.map(paper => (
-                            <div
-                                key={paper.id}
-                                onClick={() => openPaper(paper)}
-                                style={{
-                                    padding: '10px 12px',
-                                    margin: '4px 0',
-                                    background: selectedPaper?.id === paper.id ? '#e6f7ff' : 'transparent',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    transition: 'background 0.2s',
-                                    textAlign: 'left'
-                                }}
-                            >
-                                <span>📄</span>
-                                <span style={{ fontSize: '13px', textAlign: 'left' }}>{paper.name}</span>
-                            </div>
-                        ))
-                    )}
-                </div>
 
-                {/* 模拟卷列表 */}
-                <div>
-                    <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
-                        📝 模拟试卷
-                    </div>
-                    {loading ? (
-                        <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
-                    ) : simulationPapers.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '12px' }}>
-                            暂无{selectedYear}年模拟卷
+                        {/* 标题 */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, marginBottom: '8px' }}>📝 上海春考真题</h3>
+                            <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
+                                历年真题 + 模拟试卷
+                            </p>
                         </div>
-                    ) : (
-                        simulationPapers.map(paper => (
-                            <div
-                                key={paper.id}
-                                onClick={() => openPaper(paper)}
-                                style={{
-                                    padding: '10px 12px',
-                                    margin: '4px 0',
-                                    background: selectedPaper?.id === paper.id ? '#e6f7ff' : 'transparent',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    transition: 'background 0.2s',
-                                    textAlign: 'left'
-                                }}
-                            >
-                                <span>📋</span>
-                                <span style={{ fontSize: '13px', textAlign: 'left' }}>{paper.name}</span>
+
+                        {/* 学科切换 */}
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+                            {Object.entries(subjects).map(([key, val]) => (
+                                <button
+                                    key={key}
+                                    onClick={() => {
+                                        setSelectedSubject(key);
+                                        setSelectedPaper(null);
+                                        setHasListening(false);
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        padding: '8px',
+                                        background: selectedSubject === key ? val.color : '#fff',
+                                        color: selectedSubject === key ? '#fff' : '#333',
+                                        border: `1px solid ${val.color}`,
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    {val.name}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* 年份切换 */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
+                                年份筛选
                             </div>
-                        ))
-                    )}
-                </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {years.map(year => (
+                                    <button
+                                        key={year}
+                                        onClick={() => {
+                                            setSelectedYear(year);
+                                            setSelectedPaper(null);
+                                            setHasListening(false);
+                                        }}
+                                        style={{
+                                            padding: '4px 10px',
+                                            background: selectedYear === year ? '#1890ff' : '#fff',
+                                            color: selectedYear === year ? '#fff' : '#333',
+                                            border: `1px solid ${selectedYear === year ? '#1890ff' : '#ddd'}`,
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
+                                        }}
+                                    >
+                                        {year}年
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 真题列表 */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
+                                📖 真题试卷
+                            </div>
+                            {loading ? (
+                                <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
+                            ) : examPapers.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '12px' }}>
+                                    暂无{selectedYear}年真题
+                                </div>
+                            ) : (
+                                examPapers.map(paper => (
+                                    <div
+                                        key={paper.id}
+                                        onClick={() => openPaper(paper)}
+                                        style={{
+                                            padding: '10px 12px',
+                                            margin: '4px 0',
+                                            background: selectedPaper?.id === paper.id ? '#e6f7ff' : 'transparent',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            transition: 'background 0.2s',
+                                            textAlign: 'left'
+                                        }}
+                                    >
+                                        <span>📄</span>
+                                        <span style={{ fontSize: '13px', textAlign: 'left' }}>{paper.name}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        {/* 模拟卷列表 */}
+                        <div>
+                            <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', color: '#666' }}>
+                                📝 模拟试卷
+                            </div>
+                            {loading ? (
+                                <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
+                            ) : simulationPapers.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '20px', color: '#999', fontSize: '12px' }}>
+                                    暂无{selectedYear}年模拟卷
+                                </div>
+                            ) : (
+                                simulationPapers.map(paper => (
+                                    <div
+                                        key={paper.id}
+                                        onClick={() => openPaper(paper)}
+                                        style={{
+                                            padding: '10px 12px',
+                                            margin: '4px 0',
+                                            background: selectedPaper?.id === paper.id ? '#e6f7ff' : 'transparent',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            transition: 'background 0.2s',
+                                            textAlign: 'left'
+                                        }}
+                                    >
+                                        <span>📋</span>
+                                        <span style={{ fontSize: '13px', textAlign: 'left' }}>{paper.name}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    /* 折叠状态 */
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', marginTop: '20px' }}>
+                        <button
+                            onClick={() => setSidebarCollapsed(false)}
+                            style={{
+                                background: '#1890ff',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                padding: '4px 8px',
+                                fontSize: '12px'
+                            }}
+                        >
+                            →
+                        </button>
+                        <div style={{ fontSize: '20px' }}>📝</div>
+                        <div style={{ fontSize: '12px', color: '#666', writingMode: 'vertical-rl' }}>
+                            真题
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* 右侧内容 */}
