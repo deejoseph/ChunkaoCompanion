@@ -12,6 +12,33 @@ function AIAnswerReference({ currentTopic, subject }) {
             loadAnswerBank();
         }
     }, [isOpen, currentTopic, subject]);
+    
+    // 模型昵称和颜色映射
+    const getModelNickname = (model) => {
+        const nicknames = {
+            'qwen2.5:7b': '小明',
+            'qwen2.5:14b': '小红',
+            'glm4:9b': '小刚',
+            'qwen2.5-coder:7b': '小华',
+            'qwen2-math:1.5b': '小智',
+            'qwen2-math:7b': '小慧',
+            'gemma3:4b': '小美'
+        };
+        return nicknames[model] || model.split(':')[0];
+    };
+
+    const getModelColor = (model) => {
+        const colors = {
+            'qwen2.5:7b': '#1890ff',
+            'qwen2.5:14b': '#52c41a',
+            'glm4:9b': '#722ed1',
+            'qwen2.5-coder:7b': '#eb2f96',
+            'qwen2-math:1.5b': '#13c2c2',
+            'qwen2-math:7b': '#fa8c16',
+            'gemma3:4b': '#2f54eb'
+        };
+        return colors[model] || '#999';
+    };
 
     const loadAnswerBank = async () => {
         setLoading(true);
@@ -171,6 +198,7 @@ function AIAnswerReference({ currentTopic, subject }) {
                                         <div style={{ fontSize: '13px', marginBottom: '8px', color: '#333', lineHeight: '1.6' }}>
                                             {q.content}
                                         </div>
+                                        {/* 参考答案区域 - 区分同学和资料 */}
                                         <div style={{
                                             background: '#f6ffed',
                                             padding: '10px',
@@ -179,22 +207,32 @@ function AIAnswerReference({ currentTopic, subject }) {
                                             borderLeft: '3px solid #52c41a'
                                         }}>
                                             <div style={{ color: '#52c41a', fontWeight: 'bold', marginBottom: '4px' }}>
-                                                📖 参考答案
+                                                👨‍🎓 同学的想法
                                             </div>
-                                            <div>{formatAnswer(q.finalAnswer || q.aiSuggestedAnswer || q.answer)}</div>
-                                            {q.aiSuggestedAnswer && (
-                                                <div style={{ marginTop: '6px', color: '#1890ff', fontSize: '12px' }}>
-                                                    <strong>AI suggested: </strong>{formatAnswer(q.aiSuggestedAnswer)}
-                                                </div>
+                                            <div>{formatAnswer(q.aiSuggestedAnswer || '暂无')}</div>
+
+                                            {/* 不同同学的不同答案 */}
+                                            {q.aiAnswers && Object.keys(q.aiAnswers).length > 1 && (
+                                                <details style={{ marginTop: '8px' }}>
+                                                    <summary style={{ fontSize: '12px', color: '#999', cursor: 'pointer' }}>看看其他同学的想法</summary>
+                                                    <div style={{ marginTop: '6px' }}>
+                                                        {Object.entries(q.aiAnswers).map(([model, answer]) => (
+                                                            <div key={model} style={{ fontSize: '12px', marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
+                                                                <strong style={{ color: getModelColor(model) }}>{getModelNickname(model)}</strong>: {answer}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </details>
                                             )}
+
                                             {q.sourceAnswer && (
-                                                <div style={{ marginTop: '6px', color: '#666', fontSize: '12px' }}>
-                                                    <strong>Source answer: </strong>{formatAnswer(q.sourceAnswer)}
-                                                </div>
-                                            )}
-                                            {q.analysis && (
-                                                <div style={{ marginTop: '8px', color: '#666', fontSize: '12px' }}>
-                                                    <strong>解析：</strong>{q.analysis}
+                                                <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #d9d9d9' }}>
+                                                    <div style={{ color: '#999', fontSize: '12px' }}>
+                                                        📖 参考资料：{formatAnswer(q.sourceAnswer)}
+                                                    </div>
+                                                    <div style={{ fontSize: '11px', color: '#ccc', marginTop: '4px' }}>
+                                                        💡 提示：参考资料仅供参考，建议和同学讨论后再确认
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>

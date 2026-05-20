@@ -2,6 +2,33 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import TextCorrectionModal from './TextCorrectionModal';
 
+// 在 DataImport.jsx 顶部，import 之后添加
+// 模型昵称和颜色映射（同学化）
+const getModelNickname = (model) => {
+    const nicknames = {
+        'qwen2.5:7b': '小明',
+        'qwen2.5:14b': '小红',
+        'glm4:9b': '小刚',
+        'qwen2.5-coder:7b': '小华',
+        'qwen2-math:1.5b': '小智',
+        'qwen2-math:7b': '小慧',
+        'gemma3:4b': '小美'
+    };
+    return nicknames[model] || model.split(':')[0];
+};
+
+const getModelColor = (model) => {
+    const colors = {
+        'qwen2.5:7b': '#1890ff',
+        'qwen2.5:14b': '#52c41a',
+        'glm4:9b': '#722ed1',
+        'qwen2.5-coder:7b': '#eb2f96',
+        'qwen2-math:1.5b': '#13c2c2',
+        'qwen2-math:7b': '#fa8c16',
+        'gemma3:4b': '#2f54eb'
+    };
+    return colors[model] || '#999';
+};
 
 function DataImport() {
     const [subject, setSubject] = useState('chinese');
@@ -58,7 +85,7 @@ function DataImport() {
     const [detectedInfo, setDetectedInfo] = useState({ subject: '', questionType: '', specificType: '', typeLabel: '' });
     const [isBatchValidation, setIsBatchValidation] = useState(false);
     const [batchQuestions, setBatchQuestions] = useState([]);
-    const [batchCurrentIndex, setBatchCurrentIndex] = useState(0);
+    const [batchCurrentIndex, setBatchCurrentIndex] = useState(0);   
 
     // 题型识别函数
     const detectQuestionType = (content) => {
@@ -1599,7 +1626,7 @@ function DataImport() {
                                     </div>
                                 </div>
 
-                                {/* AI 验证区域 */}
+                                {/* AI 验证区域 - 改为同学讨论模式 */}
                                 <div style={{
                                     background: '#f0f7ff',
                                     padding: '12px',
@@ -1607,62 +1634,69 @@ function DataImport() {
                                     marginBottom: '12px'
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <strong>🤖 AI 验证</strong>
+                                        <strong>🤝 找同学讨论</strong>
                                         <button
                                             onClick={() => prepareValidation(q)}
                                             disabled={loading}
                                             style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                         >
-                                            验证
+                                            讨论
                                         </button>
                                     </div>
-                                    {q.aiAnswers && Object.keys(q.aiAnswers).length > 0 && (
-                                        <div>
-                                            {Object.entries(q.aiAnswers).map(([model, answer]) => (
-                                                <div key={model} style={{ fontSize: '13px', marginBottom: '4px' }}>
-                                                    <strong>{model}:</strong> {answer}
-                                                </div>
-                                            ))}
-                                            <div style={{ marginTop: '8px', fontWeight: 'bold', color: '#fa8c16' }}>
-                                                🤖 AI建议答案: {q.aiSuggestedAnswer || '未验证'}
-                                            </div>
-                                            <div style={{ marginTop: '4px', fontWeight: 'bold', color: q.verdict === 'correct' ? '#52c41a' : '#fa8c16' }}>
-                                                投票结果: {
-                                                    q.verdict === 'correct' ? '✅ 全部正确' :
-                                                    q.verdict === 'maybe_correct' ? '⚠️ 多数正确' : '❌ 答案有误'
-                                                }
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
 
-                                <div style={{ marginBottom: '12px' }}>
-                                    <label style={{ fontWeight: 'bold', color: '#1890ff' }}>
-                                        最终答案 <span style={{ color: '#f5222d' }}>*</span>：
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={q.finalAnswer}
-                                        onChange={(e) => updateQuestion(q.id, 'finalAnswer', e.target.value)}
-                                        style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '4px', border: '2px solid #1890ff' }}
-                                        placeholder="请手动确认后填写正确答案（必填）"
-                                    />
-                                    {q.aiSuggestedAnswer && !q.finalAnswer && (
-                                        <div style={{ fontSize: '12px', color: '#fa8c16', marginTop: '4px' }}>
-                                            💡 提示：AI建议答案为「{q.aiSuggestedAnswer}」，可参考填写
+                                    {/* 三栏对比 - 我的答案 vs 同学答案 vs 参考答案 */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginTop: '12px' }}>
+                                        {/* 我的答案 */}
+                                        <div style={{ background: '#e6f7ff', padding: '10px', borderRadius: '6px' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>📝 我的答案</div>
+                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
+                                                {q.finalAnswer || '等待填写...'}
+                                            </div>
+                                        </div>
+
+                                        {/* 同学答案（AI建议） */}
+                                        <div style={{ background: '#f6ffed', padding: '10px', borderRadius: '6px' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#52c41a' }}>
+                                                👨‍🎓 同学的答案
+                                            </div>
+                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
+                                                {q.aiSuggestedAnswer || '暂未讨论'}
+                                            </div>
+                                            {q.aiAnswers && Object.keys(q.aiAnswers).length > 0 && (
+                                                <div style={{ marginTop: '8px', fontSize: '11px', color: '#999' }}>
+                                                    <details>
+                                                        <summary style={{ cursor: 'pointer' }}>看看不同同学的想法</summary>
+                                                        <div style={{ marginTop: '6px' }}>
+                                                            {Object.entries(q.aiAnswers).map(([model, answer]) => (
+                                                                <div key={model} style={{ marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
+                                                                    <span style={{ fontWeight: 'bold', color: getModelColor(model) }}>{getModelNickname(model)}</span>
+                                                                    <span style={{ marginLeft: '8px', fontSize: '12px' }}>{answer}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 参考答案 */}
+                                        <div style={{ background: '#fff7e6', padding: '10px', borderRadius: '6px' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#fa8c16' }}>
+                                                📖 参考答案
+                                            </div>
+                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
+                                                {q.sourceAnswer || '暂无'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 投票结果提示 */}
+                                    {q.verdict && (
+                                        <div style={{ marginTop: '8px', fontSize: '12px', textAlign: 'center', color: '#666' }}>
+                                            {q.verdict === 'correct' ? '✅ 同学们看法一致' : 
+                                             q.verdict === 'maybe_correct' ? '⚠️ 同学们有不同看法' : '❌ 同学们看法不一致，建议问老师'}
                                         </div>
                                     )}
-                                </div>
-                                
-                                <div>
-                                    <label>解析：</label>
-                                    <textarea
-                                        value={q.analysis}
-                                        onChange={(e) => updateQuestion(q.id, 'analysis', e.target.value)}
-                                        rows={2}
-                                        style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '4px', border: '1px solid #ccc' }}
-                                        placeholder="答案解析..."
-                                    />
                                 </div>
                             </div>
                         ))}
