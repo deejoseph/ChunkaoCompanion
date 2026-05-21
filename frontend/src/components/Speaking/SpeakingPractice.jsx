@@ -21,11 +21,56 @@ function SpeakingPractice() {
     const speakTimeoutRef = useRef(null);
     const [conversationHistory, setConversationHistory] = useState([]);
     const [isConversationMode, setIsConversationMode] = useState(false);
+    const [aiLoading, setAiLoading] = useState(false);  // 用于 Whisper 识别加载状态
     
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
+    
+    // 添加状态
+    const [recognitionEngine, setRecognitionEngine] = useState('webspeech'); // 'webspeech' or 'whisper'
+
+    // 添加 Whisper 识别函数
+    const transcribeWithWhisper = async (audioBlob) => {
+        setLoading(true);
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('model_size', 'small');
+        formData.append('language', 'en');
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/whisper/transcribe', formData);
+
+            if (response.data.success) {
+                // 清空之前的句子
+                setSentences([]);
+
+                // 处理分段结果
+                const segments = response.data.segments || [];
+                const newSentences = segments.map(s => s.text.trim());
+                setSentences(newSentences);
+
+                const fullText = newSentences.join(' ');
+                setFullTranscript(fullText);
+                finalTranscriptRef.current = fullText;
+
+                setCurrentInterim('');
+
+                console.log(`Whisper 识别完成: ${newSentences.length} 个句子`);
+            } else {
+                console.error('Whisper 识别失败:', response.data.error);
+                alert('Whisper 识别失败，请重试');
+            }
+        } catch (error) {
+            console.error('Whisper 请求失败:', error);
+            alert('Whisper 服务未响应，请检查后端服务');
+        } finally {
+            setLoading(false);
+            // 确保录音状态被重置
+            setIsRecording(false);
+        }
+    };
 
     // 雅思 Part1 高频话题
     const topics = [
@@ -212,12 +257,19 @@ function SpeakingPractice() {
             .catch(err => console.error('无法获取麦克风:', err));
     };
 
-    const handleRecordingStop = () => {
-        console.log('停止录音');
+    // 普通停止录音（Web Speech 模式）
+    const handleRecordingStopNormal = () => {
+        console.log('停止录音 (Web Speech)');
         setIsRecording(false);
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
             mediaRecorderRef.current.stop();
         }
+    };
+
+    // Whisper 模式下的处理（由 onAudioBlob 直接调用）
+    const handleWhisperAudioBlob = (blob) => {
+        console.log('收到音频 Blob，调用 Whisper');
+        transcribeWithWhisper(blob);
     };
 
     // AI 分析（支持场景化对话）
@@ -355,7 +407,8 @@ function SpeakingPractice() {
                 gap: '12px',
                 marginBottom: '20px',
                 borderBottom: '1px solid #e8e8e8',
-                paddingBottom: '12px'
+                paddingBottom: '12px',
+                flexWrap: 'wrap'
             }}>
                 <button
                     onClick={() => {
@@ -394,6 +447,39 @@ function SpeakingPractice() {
                 >
                     💬 场景对话模式
                 </button>
+
+                {/* 识别引擎选择 - 新增 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                    <span style={{ fontSize: '13px', color: '#666' }}>识别引擎：</span>
+                    <button
+                        onClick={() => setRecognitionEngine('webspeech')}
+                        style={{
+                            padding: '6px 16px',
+                            background: recognitionEngine === 'webspeech' ? '#1890ff' : '#f0f0f0',
+                            color: recognitionEngine === 'webspeech' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        ⚡ 快速模式
+                    </button>
+                    <button
+                        onClick={() => setRecognitionEngine('whisper')}
+                        style={{
+                            padding: '6px 16px',
+                            background: recognitionEngine === 'whisper' ? '#52c41a' : '#f0f0f0',
+                            color: recognitionEngine === 'whisper' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        🎯 精准模式 (Whisper)
+                    </button>
+                </div>
             </div>
 
             {/* 场景选择（对话模式） */}
@@ -554,7 +640,8 @@ function SpeakingPractice() {
                     onTranscript={handleTranscript}
                     onSentence={handleSentence}
                     onRecordingStart={handleRecordingStart}
-                    onRecordingStop={handleRecordingStop}
+                    onRecordingStop={recognitionEngine === 'whisper' ? null : handleRecordingStopNormal}
+                    onAudioBlob={recognitionEngine === 'whisper' ? handleWhisperAudioBlob : null}
                     disabled={(!isConversationMode && !selectedTopic) || (isConversationMode && !selectedScenario)}
                 />
                 

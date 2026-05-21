@@ -9,34 +9,38 @@ import LearningStats from './components/LearningStats';
 import UserProfile from './components/UserProfile';
 import SpeakingPractice from './components/Speaking/SpeakingPractice';
 import DataImport from './components/DataImport';
+import SideToolPanel from './components/SideToolPanel';
+import InternationalCourses from './components/InternationalCourses';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showSidePanel, setShowSidePanel] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processLog, setProcessLog] = useState('');
   const [deleteOriginal, setDeleteOriginal] = useState(false);
-    // 添加头像状态
-    const [userAvatar, setUserAvatar] = useState(null);
-    
-    // 监听头像变化
-    useEffect(() => {
-        const loadAvatar = () => {
-            const profile = localStorage.getItem('user_profile');
-            if (profile) {
-                try {
-                    const parsed = JSON.parse(profile);
-                    setUserAvatar(parsed.avatar);
-                } catch (e) {}
-            }
-        };
-        loadAvatar();
+  
+  // 添加头像状态
+  const [userAvatar, setUserAvatar] = useState(null);
+  
+  // 监听头像变化
+  useEffect(() => {
+    const loadAvatar = () => {
+      const profile = localStorage.getItem('user_profile');
+      if (profile) {
+        try {
+          const parsed = JSON.parse(profile);
+          setUserAvatar(parsed.avatar);
+        } catch (e) {}
+      }
+    };
+    loadAvatar();
 
-        // 监听 storage 变化，跨标签页同步
-        window.addEventListener('storage', loadAvatar);
-        return () => window.removeEventListener('storage', loadAvatar);
-    }, []);
+    // 监听 storage 变化，跨标签页同步
+    window.addEventListener('storage', loadAvatar);
+    return () => window.removeEventListener('storage', loadAvatar);
+  }, []);
 
   // ========== 学科模型配置（核心） ==========
   const SUBJECT_MODELS_CONFIG = {
@@ -104,17 +108,12 @@ function App() {
   const [subjectModels, setSubjectModels] = useState(getInitialSubjectModels);
 
   // 保存学科模型配置
-    const handleSaveModels = () => {
-        localStorage.setItem('subject_models', JSON.stringify(subjectModels));
-
-        // 派发事件，传递完整的学科模型配置
-        window.dispatchEvent(new CustomEvent('modelsChanged', { 
-            detail: subjectModels 
-        }));
-
-        setShowSettingsModal(false);
-        alert('学科模型配置已保存');
-    };
+  const handleSaveModels = () => {
+    localStorage.setItem('subject_models', JSON.stringify(subjectModels));
+    window.dispatchEvent(new CustomEvent('modelsChanged', { detail: subjectModels }));
+    setShowSettingsModal(false);
+    alert('学科模型配置已保存');
+  };
 
   // 更新单个学科的模型
   const updateSubjectModel = (subject, modelValue) => {
@@ -122,36 +121,36 @@ function App() {
   };
 
   // ========== API 配置相关 ==========
-    const [apiConfig, setApiConfig] = useState({
-      aiPriority: localStorage.getItem('ai_priority') || 'local_first',
-      deepseek: {
-        apiUrl: localStorage.getItem('deepseek_api_url') || 'https://api.deepseek.com/v1',
-        apiKey: localStorage.getItem('deepseek_api_key') || '',
-        model: localStorage.getItem('deepseek_model') || 'deepseek-v4-flash',
-        active: localStorage.getItem('deepseek_active') === 'true'
-      },
-      custom: {
-        apiKey: localStorage.getItem('custom_api_key') || '',
-        apiUrl: localStorage.getItem('custom_api_url') || '',
-        model: localStorage.getItem('custom_model') || 'gpt-3.5-turbo',
-        active: localStorage.getItem('custom_active') === 'true'
-      }
-    });
+  const [apiConfig, setApiConfig] = useState({
+    aiPriority: localStorage.getItem('ai_priority') || 'local_first',
+    deepseek: {
+      apiUrl: localStorage.getItem('deepseek_api_url') || 'https://api.deepseek.com/v1',
+      apiKey: localStorage.getItem('deepseek_api_key') || '',
+      model: localStorage.getItem('deepseek_model') || 'deepseek-v4-flash',
+      active: localStorage.getItem('deepseek_active') === 'true'
+    },
+    custom: {
+      apiKey: localStorage.getItem('custom_api_key') || '',
+      apiUrl: localStorage.getItem('custom_api_url') || '',
+      model: localStorage.getItem('custom_model') || 'gpt-3.5-turbo',
+      active: localStorage.getItem('custom_active') === 'true'
+    }
+  });
 
   // 测试 API 连接
-    const testAPIConnection = async (type) => {
-      let apiUrl, apiKey, modelName;
+  const testAPIConnection = async (type) => {
+    let apiUrl, apiKey, modelName;
 
-      if (type === 'deepseek') {
-        apiUrl = apiConfig.deepseek.apiUrl || 'https://api.deepseek.com/v1';
-        apiKey = apiConfig.deepseek.apiKey;
-        modelName = apiConfig.deepseek.model;
-      } else {
-        apiUrl = apiConfig.custom.apiUrl;
-        apiKey = apiConfig.custom.apiKey;
-        modelName = apiConfig.custom.model;
-      }
-    
+    if (type === 'deepseek') {
+      apiUrl = apiConfig.deepseek.apiUrl || 'https://api.deepseek.com/v1';
+      apiKey = apiConfig.deepseek.apiKey;
+      modelName = apiConfig.deepseek.model;
+    } else {
+      apiUrl = apiConfig.custom.apiUrl;
+      apiKey = apiConfig.custom.apiKey;
+      modelName = apiConfig.custom.model;
+    }
+
     if (!apiKey) {
       alert('请先填写 API Key');
       return;
@@ -160,7 +159,7 @@ function App() {
       alert('请先填写 API 地址');
       return;
     }
-    
+
     try {
       const response = await axios.post('http://localhost:3001/api/config/test', {
         api_url: apiUrl,
@@ -215,13 +214,21 @@ function App() {
     background: activeTab === tab ? '#1890ff' : 'transparent',
     color: 'white',
     border: 'none',
-    padding: '8px 20px',
+    padding: '6px 12px',
     borderRadius: '4px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    fontSize: '14px',
+    whiteSpace: 'nowrap'
   });
 
   return (
     <div className="App">
+      {/* 侧边工具面板 */}
+      <SideToolPanel 
+        isOpen={showSidePanel} 
+        onClose={() => setShowSidePanel(false)} 
+      />
+      
       {/* 导航栏 */}
       <div style={{
         display: 'flex',
@@ -230,57 +237,83 @@ function App() {
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
-        minHeight: '60px',
+        minHeight: '50px',
         gap: '8px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <h1 style={{ color: 'white', margin: 0, fontSize: 'clamp(16px, 5vw, 20px)', whiteSpace: 'nowrap' }}>🎯 春考伴学</h1>
-          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-            <button onClick={() => setActiveTab('learn')} style={getNavButtonStyle('learn')}>📚 知识点学习</button>
-            <button onClick={() => setActiveTab('exam')} style={getNavButtonStyle('exam')}>📝 真题模考</button>
-            <button onClick={() => setActiveTab('listening')} style={getNavButtonStyle('listening')}>🎧 听力训练</button>
-            <button onClick={() => setActiveTab('speaking')} style={getNavButtonStyle('speaking')}>🎤 口语练习</button>
-            <button onClick={() => setActiveTab('ai')} style={getNavButtonStyle('ai')}>🤖 AI助教</button>
-          </div>
+        {/* 左侧：菜单按钮 + Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={() => setShowSidePanel(!showSidePanel)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'white',
+              fontSize: '20px',
+              cursor: 'pointer',
+              padding: '8px'
+            }}
+            title="工具面板"
+          >
+            ☰
+          </button>
+          <img 
+            src="/logo.png" 
+            alt="AI伴学" 
+            style={{ height: '32px', width: 'auto' }}
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
         </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setActiveTab('import')} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="新资料采集">📥</button>
-          <button onClick={() => setShowSettingsModal(true)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="系统设置">⚙️</button>
-          <button onClick={() => setActiveTab('stats')} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="学习统计">📊</button>
-        <button 
+
+        {/* 中间：导航按钮 */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '8px', 
+          flexWrap: 'wrap',
+          justifyContent: 'center'
+        }}>
+          <button onClick={() => setActiveTab('learn')} style={getNavButtonStyle('learn')}>📚 学习</button>
+          <button onClick={() => setActiveTab('exam')} style={getNavButtonStyle('exam')}>📝 真题</button>
+          <button onClick={() => setActiveTab('listening')} style={getNavButtonStyle('listening')}>🎧 听力</button>
+          <button onClick={() => setActiveTab('speaking')} style={getNavButtonStyle('speaking')}>🎤 口语</button>
+          <button onClick={() => setActiveTab('ai')} style={getNavButtonStyle('ai')}>🤖 AI助教</button>
+          <button onClick={() => setActiveTab('import')} style={getNavButtonStyle('import')}>📥 采集</button>
+          <button onClick={() => setActiveTab('stats')} style={getNavButtonStyle('stats')}>📊 统计</button>
+          <button onClick={() => setActiveTab('international')} style={getNavButtonStyle('international')}>🌍 国际</button>
+        </div>
+
+        {/* 右侧：用户头像 + 设置 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button 
+            onClick={() => setShowSettingsModal(true)} 
+            style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '18px', cursor: 'pointer', padding: '6px' }} 
+            title="系统设置"
+          >
+            ⚙️
+          </button>
+          <button 
             onClick={() => setActiveTab('profile')} 
-            style={{ 
-                background: 'transparent', 
-                border: 'none', 
-                color: 'white', 
-                fontSize: 'clamp(16px, 4vw, 20px)', 
-                cursor: 'pointer', 
-                padding: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-            }} 
+            style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', padding: '4px' }}
             title="我的"
-        >
+          >
             {userAvatar ? (
-                <img src={userAvatar} alt="avatar" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} />
+              <img src={userAvatar} alt="avatar" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} />
             ) : (
-                '👤'
+              <span style={{ fontSize: '20px' }}>👤</span>
             )}
-        </button>
-          <button style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 'clamp(16px, 4vw, 20px)', cursor: 'pointer', padding: '6px' }} title="帮助">ℹ️</button>
+          </button>
         </div>
       </div>
 
-    {/* 内容区域 */}
-    {activeTab === 'learn' && <KnowledgeLearning />}
-    {activeTab === 'ai' && <AIAssistant />}
-    {activeTab === 'exam' && <ExamPapers />}
-    {activeTab === 'listening' && <ListeningLearning />}
-    {activeTab === 'speaking' && <SpeakingPractice />}
-    {activeTab === 'stats' && <LearningStats />}
-    {activeTab === 'profile' && <UserProfile />}
-    {activeTab === 'import' && <DataImport />}
+      {/* 内容区域 */}
+      {activeTab === 'learn' && <KnowledgeLearning />}
+      {activeTab === 'ai' && <AIAssistant />}
+      {activeTab === 'exam' && <ExamPapers />}
+      {activeTab === 'listening' && <ListeningLearning />}
+      {activeTab === 'speaking' && <SpeakingPractice />}
+      {activeTab === 'stats' && <LearningStats />}
+      {activeTab === 'profile' && <UserProfile />}
+      {activeTab === 'import' && <DataImport />}
+      {activeTab === 'international' && <InternationalCourses />}
 
       {/* 📄 批量处理Word弹窗 */}
       {showProcessModal && (
@@ -333,7 +366,7 @@ function App() {
 
             {/* 春考日期 */}
             <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 春考日期</label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
               <input type="date" defaultValue={localStorage.getItem('exam_date') || '2027-01-09'} onChange={(e) => localStorage.setItem('exam_date', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
             </div>
 
@@ -369,11 +402,10 @@ function App() {
               <p style={{ fontSize: '12px', color: '#666', marginTop: '8px', marginBottom: 0 }}>💡 {SUBJECT_MODELS_CONFIG.english.options.find(o => o.value === subjectModels.english)?.description || '选择适合的模型'}</p>
             </div>
 
-            {/* ========== 新增：API 云端服务配置 ========== */}
+            {/* API 云端服务配置 */}
             <div style={{ marginTop: '24px', borderTop: '2px solid #e8e8e8', paddingTop: '20px' }}>
               <h4 style={{ margin: '0 0 12px 0', color: '#722ed1' }}>🌐 云端 AI 服务（备援）</h4>
               
-              {/* AI 优先级选择 */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>AI 调用优先级</label>
                 <select 
@@ -386,105 +418,52 @@ function App() {
                   <option value="local_only">仅使用本地 Ollama</option>
                   <option value="cloud_only">仅使用云端 API</option>
                 </select>
-                <p style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>💡 云端 API 需要单独配置下方 Key</p>
               </div>
 
               {/* DeepSeek 配置 */}
               <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px', border: '1px solid #e8e8e8' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <strong style={{ fontSize: '15px' }}>🔗 DeepSeek API</strong>
-                  <button 
-                    onClick={() => testAPIConnection('deepseek')}
-                    style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                  >测试连接</button>
+                  <strong>🔗 DeepSeek API</strong>
+                  <button onClick={() => testAPIConnection('deepseek')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
                 </div>
-                  
-                  {/* 新增：API 地址输入框 */}
-                  <div style={{ marginBottom: '10px' }}>
-                    <input 
-                      type="text" 
-                      placeholder="API 地址 (https://api.deepseek.com/v1)" 
-                      value={apiConfig.deepseek.apiUrl || 'https://api.deepseek.com/v1'}
-                      onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiUrl: e.target.value } })}
-                      style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                    />
-                  </div>
                 <div style={{ marginBottom: '10px' }}>
-                  <input 
-                    type="password" 
-                    placeholder="API Key (sk-...)" 
-                    value={apiConfig.deepseek.apiKey}
-                    onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiKey: e.target.value } })}
-                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                  />
+                  <input type="text" placeholder="API 地址" value={apiConfig.deepseek.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <input type="password" placeholder="API Key" value={apiConfig.deepseek.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input 
-                    type="text" 
-                    placeholder="模型名称" 
-                    value={apiConfig.deepseek.model}
-                    onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, model: e.target.value } })}
-                    style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                  />
+                  <input type="text" placeholder="模型名称" value={apiConfig.deepseek.model} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={apiConfig.deepseek.active}
-                      onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, active: e.target.checked } })}
-                    />
+                    <input type="checkbox" checked={apiConfig.deepseek.active} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, active: e.target.checked } })} />
                     启用
                   </label>
                 </div>
               </div>
 
-              {/* 自定义 API（OpenAI 兼容） */}
+              {/* 自定义 API */}
               <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px', border: '1px solid #e8e8e8' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <strong style={{ fontSize: '15px' }}>⚙️ 自定义 API（OpenAI 兼容）</strong>
-                  <button 
-                    onClick={() => testAPIConnection('custom')}
-                    style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                  >测试连接</button>
+                  <strong>⚙️ 自定义 API（OpenAI 兼容）</strong>
+                  <button onClick={() => testAPIConnection('custom')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
                 </div>
                 <div style={{ marginBottom: '10px' }}>
-                  <input 
-                    type="password" 
-                    placeholder="API Key" 
-                    value={apiConfig.custom.apiKey}
-                    onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiKey: e.target.value } })}
-                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                  />
+                  <input type="password" placeholder="API Key" value={apiConfig.custom.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                 </div>
                 <div style={{ marginBottom: '10px' }}>
-                  <input 
-                    type="text" 
-                    placeholder="API 地址 (如 https://api.openai.com/v1)" 
-                    value={apiConfig.custom.apiUrl}
-                    onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiUrl: e.target.value } })}
-                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                  />
+                  <input type="text" placeholder="API 地址" value={apiConfig.custom.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input 
-                    type="text" 
-                    placeholder="模型名称" 
-                    value={apiConfig.custom.model}
-                    onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, model: e.target.value } })}
-                    style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-                  />
+                  <input type="text" placeholder="模型名称" value={apiConfig.custom.model} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={apiConfig.custom.active}
-                      onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, active: e.target.checked } })}
-                    />
+                    <input type="checkbox" checked={apiConfig.custom.active} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, active: e.target.checked } })} />
                     启用
                   </label>
                 </div>
               </div>
 
               <div style={{ fontSize: '12px', color: '#999', padding: '8px', background: '#fff7e6', borderRadius: '6px' }}>
-                🔒 安全说明：API Key 将加密存储在服务器端，不会暴露给前端。请从 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">DeepSeek 平台</a> 获取免费 API Key。
+                🔒 API Key 将加密存储在服务器端
               </div>
             </div>
 

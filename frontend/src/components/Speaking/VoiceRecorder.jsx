@@ -1,25 +1,33 @@
 import { useState, useRef, useEffect } from 'react';
 
-function VoiceRecorder({ onTranscript, onRecordingStart, onRecordingStop, onSentence, disabled = false }) {
+function VoiceRecorder({ 
+    onTranscript, 
+    onRecordingStart, 
+    onRecordingStop, 
+    onSentence, 
+    onAudioBlob,
+    disabled = false 
+}) {
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const recognitionRef = useRef(null);
     const timerRef = useRef(null);
     const spacePressedRef = useRef(false);
-    const currentSentenceRef = useRef('');
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const streamRef = useRef(null);
     const [audioLevel, setAudioLevel] = useState(0);
-    const mediaStreamRef = useRef(null);
     const audioContextRef = useRef(null);
     const sourceRef = useRef(null);
     const analyserRef = useRef(null);
     const animationRef = useRef(null);
 
-    // 音频分析（仅用于显示音量）
-    const startAudioAnalysis = async () => {
+    // 判断是否为 Whisper 模式
+    const isWhisperMode = !!onAudioBlob;
+
+    // 音频分析
+    const startAudioAnalysis = async (stream) => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaStreamRef.current = stream;
-            
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             audioContextRef.current = audioContext;
             
@@ -71,54 +79,37 @@ function VoiceRecorder({ onTranscript, onRecordingStart, onRecordingStop, onSent
             audioContextRef.current.close();
             audioContextRef.current = null;
         }
-        if (mediaStreamRef.current) {
-            mediaStreamRef.current.getTracks().forEach(track => track.stop());
-            mediaStreamRef.current = null;
-        }
         setAudioLevel(0);
     };
 
-    const startRecording = () => {
-        if (disabled || isRecording) return;
-        
+    // Web Speech API 识别（仅快速模式）
+    const startWebSpeechRecognition = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
-            alert('Your browser does not support speech recognition. Please use Chrome.');
+            console.warn('Web Speech API 不可用');
             return;
         }
-
+        
         const recognition = new SpeechRecognition();
         recognition.lang = 'en-US';
         recognition.interimResults = true;
         recognition.continuous = true;
         recognition.maxAlternatives = 1;
         
-        currentSentenceRef.current = '';
+        let currentSentence = '';
 
         recognition.onstart = () => {
-            console.log('Recording started');
-            setIsRecording(true);
-            setRecordingTime(0);
-            if (onRecordingStart) onRecordingStart();
-            startAudioAnalysis();
-            
-            timerRef.current = setInterval(() => {
-                setRecordingTime(prev => prev + 1);
-            }, 1000);
+            console.log('Web Speech 录音开始');
         };
 
         recognition.onresult = (event) => {
             let interimText = '';
-            let finalText = '';
             
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const result = event.results[i];
                 const transcript = result[0].transcript;
                 if (result.isFinal) {
-                    // 这是一个完整的句子
-                    finalText = transcript;
-                    currentSentenceRef.current = transcript;
-                    // 立即提交句子
+                    currentSentence = transcript;
                     if (onSentence) {
                         onSentence(transcript, true);
                     }
@@ -130,42 +121,99 @@ function VoiceRecorder({ onTranscript, onRecordingStart, onRecordingStop, onSent
                 }
             }
             
-            // 显示中间结果（正在识别的部分）
-            if (interimText) {
-                if (onTranscript) {
-                    onTranscript(interimText, false);
-                }
+            if (interimText && onTranscript) {
+                onTranscript(interimText, false);
             }
         };
 
         recognition.onerror = (event) => {
-            console.error('Recognition error:', event.error);
-            if (event.error === 'no-speech') {
-                console.log('No speech detected');
-            } else if (event.error === 'audio-capture') {
-                alert('Cannot access microphone. Please check permissions.');
-            }
+            console.error('Web Speech 错误:', event.error);
         };
 
         recognition.onend = () => {
-            console.log('Recognition ended');
-            setIsRecording(false);
-            if (timerRef.current) {
-                clearInterval(timerRef.current);
-                timerRef.current = null;
-            }
-            if (onRecordingStop) onRecordingStop();
-            stopAudioAnalysis();
+            console.log('Web Speech 录音结束');
         };
 
         recognitionRef.current = recognition;
         recognition.start();
     };
 
+    const startRecording = () => {
+        if (disabled || isRecording) return;
+        
+        // 启动 MediaRecorder（用于 Whisper 模式或录音回放）
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                streamRef.current = stream;
+                startAudioAnalysis(stream);
+                
+                mediaRecorderRef.current = new MediaRecorder(stream);
+                audioChunksRef.current = [];
+                
+                mediaRecorderRef.current.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunksRef.current.push(event.data);
+                    }
+                };
+                
+                mediaRecorderRef.current.start();
+                
+                // 设置录音状态
+                setIsRecording(true);
+                setRecordingTime(0);
+                if (onRecordingStart) onRecordingStart();
+                
+                timerRef.current = setInterval(() => {
+                    setRecordingTime(prev => prev + 1);
+                }, 1000);
+                
+                // 如果不是 Whisper 模式，启动 Web Speech API 实时识别
+                if (!isWhisperMode) {
+                    startWebSpeechRecognition();
+                }
+            })
+            .catch(err => console.error('无法获取麦克风:', err));
+    };
+
     const stopRecording = () => {
-        if (recognitionRef.current) {
+        console.log('stopRecording 被调用');
+
+        // 停止 Web Speech API（仅快速模式）
+        if (!isWhisperMode && recognitionRef.current) {
             recognitionRef.current.stop();
             recognitionRef.current = null;
+        }
+
+        // 停止 MediaRecorder
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            console.log('停止 MediaRecorder');
+            mediaRecorderRef.current.onstop = () => {
+                console.log('MediaRecorder onstop 触发');
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                if (onAudioBlob) {
+                    onAudioBlob(blob);
+                }
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
+            };
+            mediaRecorderRef.current.stop();
+        } else {
+            console.log('MediaRecorder 未在录音状态');
+        }
+
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+        }
+
+        setIsRecording(false);
+        setRecordingTime(0);
+        stopAudioAnalysis();
+
+        if (onRecordingStop) {
+            onRecordingStop();
         }
     };
 
@@ -200,6 +248,9 @@ function VoiceRecorder({ onTranscript, onRecordingStart, onRecordingStop, onSent
     useEffect(() => {
         return () => {
             stopAudioAnalysis();
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
         };
     }, []);
 
@@ -273,7 +324,7 @@ function VoiceRecorder({ onTranscript, onRecordingStart, onRecordingStop, onSent
                 {isRecording ? 'Release Space to stop' : 'Hold Space to record'}
             </div>
             <div style={{ marginTop: '4px', fontSize: '11px', color: '#999' }}>
-                💡 Speak clearly. The system will split sentences automatically.
+                💡 Speak clearly
             </div>
         </div>
     );

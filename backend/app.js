@@ -9,6 +9,7 @@ const aiRouter = require('./routes/ai');
 const banksRouter = require('./routes/banks');
 const apiConfigRouter = require('./routes/apiConfig');
 const whisperRouter = require('./routes/whisper');
+const internationalRouter = require('./routes/international');
 
 const app = express();
 const PORT = 3001;
@@ -18,6 +19,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 app.use('/api/whisper', whisperRouter);
+app.use('/api/international', internationalRouter);
 
 // ========== 路由注册（必须在 app.listen 之前） ==========
 app.use('/api/docs', docsRouter);
