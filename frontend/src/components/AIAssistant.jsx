@@ -5,7 +5,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { getModelNickname } from './Settings/ModelNicknameSettings';
+import { getModelNickname } from '../utils/nicknameHelper';
 
 const API_BASE = 'http://localhost:3001';
 

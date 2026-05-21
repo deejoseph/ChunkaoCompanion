@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getModelNickname } from '../utils/nicknameHelper';  // 🔥 导入工具函数
 
 function AIAnswerReference({ currentTopic, subject }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -13,20 +14,8 @@ function AIAnswerReference({ currentTopic, subject }) {
         }
     }, [isOpen, currentTopic, subject]);
     
-    // 模型昵称和颜色映射
-    const getModelNickname = (model) => {
-        const nicknames = {
-            'qwen2.5:7b': '小明',
-            'qwen2.5:14b': '小红',
-            'glm4:9b': '小刚',
-            'qwen2.5-coder:7b': '小华',
-            'qwen2-math:1.5b': '小智',
-            'qwen2-math:7b': '小慧',
-            'gemma3:4b': '小美'
-        };
-        return nicknames[model] || model.split(':')[0];
-    };
-
+    // 🔥 删除硬编码的 getModelNickname 函数，改用导入的
+    // 保留颜色映射（可选）
     const getModelColor = (model) => {
         const colors = {
             'qwen2.5:7b': '#1890ff',
@@ -44,10 +33,7 @@ function AIAnswerReference({ currentTopic, subject }) {
         setLoading(true);
         setError(null);
         try {
-            // 提取核心专题名称（去掉所有后缀）
             let searchTitle = currentTopic;
-
-            // 去掉各种后缀
             searchTitle = searchTitle.replace(/（教师版）/, '');
             searchTitle = searchTitle.replace(/（学生版）/, '');
             searchTitle = searchTitle.replace(/（复习讲义）/, '');
@@ -69,7 +55,6 @@ function AIAnswerReference({ currentTopic, subject }) {
             if (response.data.success && response.data.bank) {
                 setBank(response.data.bank);
             } else {
-                // 尝试模糊匹配：只取前几个字
                 const shortTitle = searchTitle.substring(0, 10);
                 const response2 = await axios.get('http://localhost:3001/api/banks/search', {
                     params: {
@@ -90,7 +75,6 @@ function AIAnswerReference({ currentTopic, subject }) {
         setLoading(false);
     };
     
-    // 格式化答案显示
     const formatAnswer = (answer) => {
         if (Array.isArray(answer)) {
             return answer.join(' / ');
@@ -211,14 +195,16 @@ function AIAnswerReference({ currentTopic, subject }) {
                                             </div>
                                             <div>{formatAnswer(q.aiSuggestedAnswer || '暂无')}</div>
 
-                                            {/* 不同同学的不同答案 */}
+                                            {/* 🔥 修改这里：使用昵称工具函数 */}
                                             {q.aiAnswers && Object.keys(q.aiAnswers).length > 1 && (
                                                 <details style={{ marginTop: '8px' }}>
                                                     <summary style={{ fontSize: '12px', color: '#999', cursor: 'pointer' }}>看看其他同学的想法</summary>
                                                     <div style={{ marginTop: '6px' }}>
                                                         {Object.entries(q.aiAnswers).map(([model, answer]) => (
                                                             <div key={model} style={{ fontSize: '12px', marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
-                                                                <strong style={{ color: getModelColor(model) }}>{getModelNickname(model)}</strong>: {answer}
+                                                                <strong style={{ color: getModelColor(model) }}>
+                                                                    🧑‍🎓 {getModelNickname(subject, model)}  {/* 🔥 关键修改：传入 subject 和 model */}
+                                                                </strong>: {answer}
                                                             </div>
                                                         ))}
                                                     </div>

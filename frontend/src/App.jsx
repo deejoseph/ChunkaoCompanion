@@ -11,6 +11,7 @@ import SpeakingPractice from './components/Speaking/SpeakingPractice';
 import DataImport from './components/DataImport';
 import SideToolPanel from './components/SideToolPanel';
 import InternationalCourses from './components/InternationalCourses';
+import ModelNicknamePanel from './components/ModelNicknamePanel';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
@@ -20,6 +21,7 @@ function App() {
   const [processing, setProcessing] = useState(false);
   const [processLog, setProcessLog] = useState('');
   const [deleteOriginal, setDeleteOriginal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('general');
   
   // 添加头像状态
   const [userAvatar, setUserAvatar] = useState(null);
@@ -345,136 +347,209 @@ function App() {
         </div>
       )}
 
-      {/* ⚙️ 系统设置弹窗 */}
-      {showSettingsModal && (
+    {/* ⚙️ 系统设置弹窗 */}
+    {showSettingsModal && (
         <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
         }}>
-          <div style={{
-            background: 'white', padding: '24px', borderRadius: '12px', width: '700px', maxWidth: '95%',
-            maxHeight: '85vh', overflow: 'auto'
-          }}>
-            <h3 style={{ marginTop: 0, marginBottom: '20px' }}>⚙️ 系统设置</h3>
-            
-            {/* 家长邮箱 */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📧 家长邮箱</label>
-              <input type="email" placeholder="parent@example.com" defaultValue={localStorage.getItem('parent_email') || ''} onChange={(e) => localStorage.setItem('parent_email', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
-              <p style={{ fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: 0 }}>学习报告将发送到此邮箱</p>
-            </div>
+            <div style={{
+                background: 'white', padding: '24px', borderRadius: '12px', width: '750px', maxWidth: '95%',
+                maxHeight: '85vh', overflow: 'auto'
+            }}>
+                <h3 style={{ marginTop: 0, marginBottom: '20px' }}>⚙️ 系统设置</h3>
 
-            {/* 春考日期 */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
-              <input type="date" defaultValue={localStorage.getItem('exam_date') || '2027-01-09'} onChange={(e) => localStorage.setItem('exam_date', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
-            </div>
-
-            {/* 分隔线 */}
-            <div style={{ borderTop: '1px solid #e8e8e8', margin: '20px 0 16px 0', textAlign: 'center', position: 'relative' }}>
-              <span style={{ background: 'white', padding: '0 12px', position: 'relative', top: '-12px', color: '#999', fontSize: '12px' }}>🤖 AI 模型配置（各学科独立）</span>
-            </div>
-
-            {/* 数学学科模型 */}
-            <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.math.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.math.borderColor}` }}>
-              <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.math.color }}>{SUBJECT_MODELS_CONFIG.math.icon} {SUBJECT_MODELS_CONFIG.math.name}学科模型</h4>
-              <select value={subjectModels.math} onChange={(e) => updateSubjectModel('math', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
-                {SUBJECT_MODELS_CONFIG.math.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-              <p style={{ fontSize: '12px', color: '#666', marginTop: '8px', marginBottom: 0 }}>💡 {SUBJECT_MODELS_CONFIG.math.options.find(o => o.value === subjectModels.math)?.description || '选择适合的模型'}</p>
-            </div>
-
-            {/* 语文学科模型 */}
-            <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.chinese.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.chinese.borderColor}` }}>
-              <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.chinese.color }}>{SUBJECT_MODELS_CONFIG.chinese.icon} {SUBJECT_MODELS_CONFIG.chinese.name}学科模型</h4>
-              <select value={subjectModels.chinese} onChange={(e) => updateSubjectModel('chinese', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
-                {SUBJECT_MODELS_CONFIG.chinese.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-              <p style={{ fontSize: '12px', color: '#666', marginTop: '8px', marginBottom: 0 }}>💡 {SUBJECT_MODELS_CONFIG.chinese.options.find(o => o.value === subjectModels.chinese)?.description || '选择适合的模型'}</p>
-            </div>
-
-            {/* 英语学科模型 */}
-            <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.english.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.english.borderColor}` }}>
-              <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.english.color }}>{SUBJECT_MODELS_CONFIG.english.icon} {SUBJECT_MODELS_CONFIG.english.name}学科模型</h4>
-              <select value={subjectModels.english} onChange={(e) => updateSubjectModel('english', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
-                {SUBJECT_MODELS_CONFIG.english.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-              <p style={{ fontSize: '12px', color: '#666', marginTop: '8px', marginBottom: 0 }}>💡 {SUBJECT_MODELS_CONFIG.english.options.find(o => o.value === subjectModels.english)?.description || '选择适合的模型'}</p>
-            </div>
-
-            {/* API 云端服务配置 */}
-            <div style={{ marginTop: '24px', borderTop: '2px solid #e8e8e8', paddingTop: '20px' }}>
-              <h4 style={{ margin: '0 0 12px 0', color: '#722ed1' }}>🌐 云端 AI 服务（备援）</h4>
-              
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>AI 调用优先级</label>
-                <select 
-                  value={apiConfig.aiPriority}
-                  onChange={(e) => setApiConfig({ ...apiConfig, aiPriority: e.target.value })}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d9d9d9' }}
-                >
-                  <option value="local_first">本地优先（本地失败时自动切换到云端）</option>
-                  <option value="cloud_first">云端优先（云端失败时切换到本地）</option>
-                  <option value="local_only">仅使用本地 Ollama</option>
-                  <option value="cloud_only">仅使用云端 API</option>
-                </select>
-              </div>
-
-              {/* DeepSeek 配置 */}
-              <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px', border: '1px solid #e8e8e8' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <strong>🔗 DeepSeek API</strong>
-                  <button onClick={() => testAPIConnection('deepseek')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
+                {/* 标签页切换 */}
+                <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    marginBottom: '20px',
+                    borderBottom: '1px solid #e8e8e8',
+                    paddingBottom: '10px'
+                }}>
+                    <button
+                        onClick={() => setSettingsTab('general')}
+                        style={{
+                            padding: '6px 16px',
+                            background: settingsTab === 'general' ? '#1890ff' : '#f0f0f0',
+                            color: settingsTab === 'general' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        ⚙️ 通用设置
+                    </button>
+                    <button
+                        onClick={() => setSettingsTab('models')}
+                        style={{
+                            padding: '6px 16px',
+                            background: settingsTab === 'models' ? '#1890ff' : '#f0f0f0',
+                            color: settingsTab === 'models' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        🤖 AI 模型配置
+                    </button>
+                    <button
+                        onClick={() => setSettingsTab('nickname')}
+                        style={{
+                            padding: '6px 16px',
+                            background: settingsTab === 'nickname' ? '#1890ff' : '#f0f0f0',
+                            color: settingsTab === 'nickname' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        🎭 AI 模型昵称
+                    </button>
+                    <button
+                        onClick={() => setSettingsTab('api')}
+                        style={{
+                            padding: '6px 16px',
+                            background: settingsTab === 'api' ? '#1890ff' : '#f0f0f0',
+                            color: settingsTab === 'api' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        🌐 云端 API 配置
+                    </button>
                 </div>
-                <div style={{ marginBottom: '10px' }}>
-                  <input type="text" placeholder="API 地址" value={apiConfig.deepseek.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                </div>
-                <div style={{ marginBottom: '10px' }}>
-                  <input type="password" placeholder="API Key" value={apiConfig.deepseek.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input type="text" placeholder="模型名称" value={apiConfig.deepseek.model} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input type="checkbox" checked={apiConfig.deepseek.active} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, active: e.target.checked } })} />
-                    启用
-                  </label>
-                </div>
-              </div>
 
-              {/* 自定义 API */}
-              <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px', border: '1px solid #e8e8e8' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <strong>⚙️ 自定义 API（OpenAI 兼容）</strong>
-                  <button onClick={() => testAPIConnection('custom')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
-                </div>
-                <div style={{ marginBottom: '10px' }}>
-                  <input type="password" placeholder="API Key" value={apiConfig.custom.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                </div>
-                <div style={{ marginBottom: '10px' }}>
-                  <input type="text" placeholder="API 地址" value={apiConfig.custom.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input type="text" placeholder="模型名称" value={apiConfig.custom.model} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input type="checkbox" checked={apiConfig.custom.active} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, active: e.target.checked } })} />
-                    启用
-                  </label>
-                </div>
-              </div>
+                {/* 根据标签页显示不同内容 */}
+                {settingsTab === 'general' && (
+                    <>
+                        {/* 家长邮箱 */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📧 家长邮箱</label>
+                            <input type="email" placeholder="parent@example.com" defaultValue={localStorage.getItem('parent_email') || ''} onChange={(e) => localStorage.setItem('parent_email', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
+                            <p style={{ fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: 0 }}>学习报告将发送到此邮箱</p>
+                        </div>
 
-              <div style={{ fontSize: '12px', color: '#999', padding: '8px', background: '#fff7e6', borderRadius: '6px' }}>
-                🔒 API Key 将加密存储在服务器端
-              </div>
+                        {/* 春考日期 */}
+                        <div style={{ marginBottom: '24px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
+                            <input type="date" defaultValue={localStorage.getItem('exam_date') || '2027-01-09'} onChange={(e) => localStorage.setItem('exam_date', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
+                        </div>
+                    </>
+                )}
+
+                {settingsTab === 'models' && (
+                    <>
+                        {/* 数学学科模型 */}
+                        <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.math.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.math.borderColor}` }}>
+                            <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.math.color }}>{SUBJECT_MODELS_CONFIG.math.icon} {SUBJECT_MODELS_CONFIG.math.name}学科模型</h4>
+                            <select value={subjectModels.math} onChange={(e) => updateSubjectModel('math', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
+                                {SUBJECT_MODELS_CONFIG.math.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        </div>
+
+                        {/* 语文学科模型 */}
+                        <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.chinese.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.chinese.borderColor}` }}>
+                            <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.chinese.color }}>{SUBJECT_MODELS_CONFIG.chinese.icon} {SUBJECT_MODELS_CONFIG.chinese.name}学科模型</h4>
+                            <select value={subjectModels.chinese} onChange={(e) => updateSubjectModel('chinese', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
+                                {SUBJECT_MODELS_CONFIG.chinese.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        </div>
+
+                        {/* 英语学科模型 */}
+                        <div style={{ marginBottom: '20px', background: SUBJECT_MODELS_CONFIG.english.bgColor, padding: '16px', borderRadius: '8px', border: `1px solid ${SUBJECT_MODELS_CONFIG.english.borderColor}` }}>
+                            <h4 style={{ margin: '0 0 12px 0', color: SUBJECT_MODELS_CONFIG.english.color }}>{SUBJECT_MODELS_CONFIG.english.icon} {SUBJECT_MODELS_CONFIG.english.name}学科模型</h4>
+                            <select value={subjectModels.english} onChange={(e) => updateSubjectModel('english', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #d9d9d9', fontSize: '14px', backgroundColor: '#fff', cursor: 'pointer' }}>
+                                {SUBJECT_MODELS_CONFIG.english.options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                        </div>
+                    </>
+                )}
+
+                {settingsTab === 'nickname' && (
+                    <ModelNicknamePanel />
+                )}
+
+                {settingsTab === 'api' && (
+                    <>
+                        {/* API 优先级 */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>AI 调用优先级</label>
+                            <select 
+                                value={apiConfig.aiPriority}
+                                onChange={(e) => setApiConfig({ ...apiConfig, aiPriority: e.target.value })}
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d9d9d9' }}
+                            >
+                                <option value="local_first">本地优先（本地失败时自动切换到云端）</option>
+                                <option value="cloud_first">云端优先（云端失败时切换到本地）</option>
+                                <option value="local_only">仅使用本地 Ollama</option>
+                                <option value="cloud_only">仅使用云端 API</option>
+                            </select>
+                        </div>
+
+                        {/* DeepSeek 配置 */}
+                        <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <strong>🔗 DeepSeek API</strong>
+                                <button onClick={() => testAPIConnection('deepseek')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
+                            </div>
+                            <div style={{ marginBottom: '10px' }}>
+                                <input type="text" placeholder="API 地址" value={apiConfig.deepseek.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div style={{ marginBottom: '10px' }}>
+                                <input type="password" placeholder="API Key" value={apiConfig.deepseek.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <input type="text" placeholder="模型名称" value={apiConfig.deepseek.model} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input type="checkbox" checked={apiConfig.deepseek.active} onChange={(e) => setApiConfig({ ...apiConfig, deepseek: { ...apiConfig.deepseek, active: e.target.checked } })} />
+                                    启用
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* 自定义 API */}
+                        <div style={{ marginBottom: '20px', padding: '16px', background: '#f5f5f5', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <strong>⚙️ 自定义 API（OpenAI 兼容）</strong>
+                                <button onClick={() => testAPIConnection('custom')} style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>测试连接</button>
+                            </div>
+                            <div style={{ marginBottom: '10px' }}>
+                                <input type="password" placeholder="API Key" value={apiConfig.custom.apiKey} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiKey: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div style={{ marginBottom: '10px' }}>
+                                <input type="text" placeholder="API 地址" value={apiConfig.custom.apiUrl} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, apiUrl: e.target.value } })} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <input type="text" placeholder="模型名称" value={apiConfig.custom.model} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, model: e.target.value } })} style={{ flex: 2, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input type="checkbox" checked={apiConfig.custom.active} onChange={(e) => setApiConfig({ ...apiConfig, custom: { ...apiConfig.custom, active: e.target.checked } })} />
+                                    启用
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style={{ fontSize: '12px', color: '#999', padding: '8px', background: '#fff7e6', borderRadius: '6px' }}>
+                            🔒 API Key 将加密存储在服务器端
+                        </div>
+                    </>
+                )}
+
+                {/* 按钮组 */}
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                    <button onClick={() => setShowSettingsModal(false)} style={{ padding: '8px 20px', background: '#f0f0f0', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>关闭</button>
+                    {settingsTab !== 'nickname' && (
+                        <button onClick={() => { saveApiConfig(); handleSaveModels(); }} style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>保存配置</button>
+                    )}
+                </div>
             </div>
-
-            {/* 按钮组 */}
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
-              <button onClick={() => setShowSettingsModal(false)} style={{ padding: '8px 20px', background: '#f0f0f0', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>取消</button>
-              <button onClick={() => { saveApiConfig(); handleSaveModels(); }} style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>保存所有配置</button>
-            </div>
-          </div>
         </div>
-      )}
+    )}
     </div>
   );
 }
