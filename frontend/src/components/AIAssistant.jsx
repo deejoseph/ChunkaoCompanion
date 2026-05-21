@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { getModelNickname } from './Settings/ModelNicknameSettings';
 
 const API_BASE = 'http://localhost:3001';
 
@@ -863,8 +864,39 @@ function AIAssistant() {
                     overflow: 'auto',
                     textAlign: 'left'
                 }}>
-                    <h3>🤖 AI 回答：</h3>
-                    <div className="markdown-body" style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                    {/* 🔥 新增：模型昵称显示 */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginBottom: '12px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid #e8e8e8',
+                        flexWrap: 'wrap'
+                    }}>
+                        <span style={{
+                            background: '#e6f7ff',
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            fontSize: '13px',
+                            fontWeight: 'bold',
+                            color: '#1890ff'
+                        }}>
+                            🧑‍🎓 {getModelNickname(currentSubject, currentModel)}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#999' }}>
+                            ({currentModelLabel.split('：')[0] || currentModel})
+                        </span>
+                        <span style={{
+                            fontSize: '11px',
+                            color: '#ff9800',
+                            marginLeft: 'auto'
+                        }}>
+                            ⚠️ AI 生成，仅供参考
+                        </span>
+                    </div>
+                    
+                    <div className="markdown-body" style={{ fontSize: '14px', lineHeight: '1.6', textAlign: 'left' }}>
                         <ReactMarkdown
                             remarkPlugins={[remarkMath, remarkGfm]}
                             rehypePlugins={[rehypeKatex]}

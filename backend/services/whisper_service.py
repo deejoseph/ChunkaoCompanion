@@ -5,13 +5,17 @@ import json
 # 设置 ffmpeg 路径
 os.environ['PATH'] = r'C:\ffmpeg\ffmpeg\bin;' + os.environ.get('PATH', '')
 
+# 禁用各种日志输出
+os.environ['GLOG_minloglevel'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 from faster_whisper import WhisperModel
 
 _model_cache = {}
 
 def get_model(model_size="small"):
     if model_size not in _model_cache:
-        print(f"加载 Whisper 模型: {model_size}")
+        # 静默加载，不输出任何内容到 stdout
         _model_cache[model_size] = WhisperModel(
             model_size, 
             device="cpu", 
@@ -56,4 +60,5 @@ if __name__ == "__main__":
     language = sys.argv[3] if len(sys.argv) > 3 else "en"
     
     result = transcribe_audio(audio_file, model_size, language)
+    # 只输出 JSON，不输出任何其他内容
     print(json.dumps(result, ensure_ascii=False))

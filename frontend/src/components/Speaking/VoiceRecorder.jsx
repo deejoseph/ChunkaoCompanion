@@ -22,10 +22,8 @@ function VoiceRecorder({
     const analyserRef = useRef(null);
     const animationRef = useRef(null);
 
-    // 判断是否为 Whisper 模式
     const isWhisperMode = !!onAudioBlob;
 
-    // 音频分析
     const startAudioAnalysis = async (stream) => {
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -72,17 +70,20 @@ function VoiceRecorder({
             animationRef.current = null;
         }
         if (sourceRef.current) {
-            sourceRef.current.disconnect();
+            try {
+                sourceRef.current.disconnect();
+            } catch (e) {}
             sourceRef.current = null;
         }
         if (audioContextRef.current) {
-            audioContextRef.current.close();
+            try {
+                audioContextRef.current.close();
+            } catch (e) {}
             audioContextRef.current = null;
         }
         setAudioLevel(0);
     };
 
-    // Web Speech API 识别（仅快速模式）
     const startWebSpeechRecognition = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -96,33 +97,30 @@ function VoiceRecorder({
         recognition.continuous = true;
         recognition.maxAlternatives = 1;
         
-        let currentSentence = '';
-
         recognition.onstart = () => {
             console.log('Web Speech 录音开始');
         };
 
         recognition.onresult = (event) => {
             let interimText = '';
+            let finalText = '';
             
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const result = event.results[i];
                 const transcript = result[0].transcript;
                 if (result.isFinal) {
-                    currentSentence = transcript;
-                    if (onSentence) {
-                        onSentence(transcript, true);
-                    }
-                    if (onTranscript) {
-                        onTranscript(transcript, true);
-                    }
+                    finalText += transcript;
                 } else {
                     interimText += transcript;
                 }
             }
             
-            if (interimText && onTranscript) {
-                onTranscript(interimText, false);
+            const text = finalText || interimText;
+            if (onTranscript) {
+                onTranscript(text, !!finalText);
+            }
+            if (finalText && onSentence) {
+                onSentence(finalText, true);
             }
         };
 
@@ -138,36 +136,48 @@ function VoiceRecorder({
         recognition.start();
     };
 
+    // VoiceRecorder.jsx - startRecording 中确保两种模式都使用 MediaRecorder
     const startRecording = () => {
         if (disabled || isRecording) return;
-        
-        // 启动 MediaRecorder（用于 Whisper 模式或录音回放）
+
         navigator.mediaDevices.getUserMedia({ audio: true })
             .then(stream => {
                 streamRef.current = stream;
                 startAudioAnalysis(stream);
-                
-                mediaRecorderRef.current = new MediaRecorder(stream);
+
                 audioChunksRef.current = [];
-                
-                mediaRecorderRef.current.ondataavailable = (event) => {
+
+                const mediaRecorder = new MediaRecorder(stream);
+                mediaRecorderRef.current = mediaRecorder;
+
+                mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
                         audioChunksRef.current.push(event.data);
                     }
                 };
-                
-                mediaRecorderRef.current.start();
-                
-                // 设置录音状态
+
+                mediaRecorder.onstop = () => {
+                    console.log('MediaRecorder onstop 触发');
+
+                    if (audioChunksRef.current.length > 0 && onAudioBlob) {
+                        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                        const audioUrl = URL.createObjectURL(blob);
+                        audioChunksRef.current = [];
+                        onAudioBlob(blob, audioUrl);
+                    }
+                };
+
+                mediaRecorder.start(100);
+
                 setIsRecording(true);
                 setRecordingTime(0);
                 if (onRecordingStart) onRecordingStart();
-                
+
                 timerRef.current = setInterval(() => {
                     setRecordingTime(prev => prev + 1);
                 }, 1000);
-                
-                // 如果不是 Whisper 模式，启动 Web Speech API 实时识别
+
+                // 快速模式：额外启动 Web Speech API 识别
                 if (!isWhisperMode) {
                     startWebSpeechRecognition();
                 }
@@ -176,48 +186,49 @@ function VoiceRecorder({
     };
 
     const stopRecording = () => {
-        console.log('stopRecording 被调用');
-
-        // 停止 Web Speech API（仅快速模式）
-        if (!isWhisperMode && recognitionRef.current) {
-            recognitionRef.current.stop();
-            recognitionRef.current = null;
-        }
-
-        // 停止 MediaRecorder
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            console.log('停止 MediaRecorder');
-            mediaRecorderRef.current.onstop = () => {
-                console.log('MediaRecorder onstop 触发');
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                if (onAudioBlob) {
-                    onAudioBlob(blob);
-                }
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
-                    streamRef.current = null;
-                }
-            };
-            mediaRecorderRef.current.stop();
-        } else {
-            console.log('MediaRecorder 未在录音状态');
-        }
-
+        const stopTime = Date.now();
+        console.log('stopRecording 被调用', stopTime);
+        
         if (timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
         }
-
+        
+        if (!isWhisperMode && recognitionRef.current) {
+            recognitionRef.current.stop();
+            recognitionRef.current = null;
+        }
+        
+        // 关键优化：先 requestData 再 stop
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            console.log('请求剩余数据并停止 MediaRecorder');
+            try {
+                mediaRecorderRef.current.requestData();
+            } catch (e) {}
+            mediaRecorderRef.current.stop();
+            mediaRecorderRef.current = null;
+        }
+        
+        if (streamRef.current) {
+            console.log('关闭麦克风音轨');
+            streamRef.current.getTracks().forEach(track => {
+                if (track.readyState === 'live') {
+                    track.stop();
+                }
+            });
+            streamRef.current = null;
+        }
+        
+        stopAudioAnalysis();
+        
         setIsRecording(false);
         setRecordingTime(0);
-        stopAudioAnalysis();
-
+        
         if (onRecordingStop) {
             onRecordingStop();
         }
     };
 
-    // 空格键控制
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.code === 'Space' && !disabled && !isRecording && !spacePressedRef.current) {
@@ -244,7 +255,6 @@ function VoiceRecorder({
         };
     }, [disabled, isRecording]);
 
-    // 清理
     useEffect(() => {
         return () => {
             stopAudioAnalysis();
@@ -282,7 +292,6 @@ function VoiceRecorder({
                 {isRecording ? '🎤' : '🎙️'}
             </div>
             
-            {/* 音量波形 */}
             {isRecording && (
                 <div style={{ marginTop: '12px', width: '200px', margin: '12px auto 0' }}>
                     <div style={{

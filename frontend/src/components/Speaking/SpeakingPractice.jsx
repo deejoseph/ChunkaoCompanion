@@ -21,55 +21,70 @@ function SpeakingPractice() {
     const speakTimeoutRef = useRef(null);
     const [conversationHistory, setConversationHistory] = useState([]);
     const [isConversationMode, setIsConversationMode] = useState(false);
-    const [aiLoading, setAiLoading] = useState(false);  // 用于 Whisper 识别加载状态
+    const [recognitionEngine, setRecognitionEngine] = useState('webspeech');
     
-    const mediaRecorderRef = useRef(null);
-    const audioChunksRef = useRef([]);
+    // Refs
+    const audioUrlRef = useRef(null);
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
-    
-    // 添加状态
-    const [recognitionEngine, setRecognitionEngine] = useState('webspeech'); // 'webspeech' or 'whisper'
+    const isProcessingRef = useRef(false); // 防止重复调用
 
-    // 添加 Whisper 识别函数
-    const transcribeWithWhisper = async (audioBlob) => {
+    // Whisper 识别函数 - 支持指定模型大小
+    const transcribeWithWhisper = async (audioBlob, modelSize = 'small') => {
+        if (isProcessingRef.current) {
+            console.log('Whisper 识别中，跳过重复调用');
+            return;
+        }
+
+        isProcessingRef.current = true;
         setLoading(true);
+
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.webm');
-        formData.append('model_size', 'small');
+        formData.append('model_size', modelSize);
         formData.append('language', 'en');
 
         try {
             const response = await axios.post('http://localhost:3001/api/whisper/transcribe', formData);
-
             if (response.data.success) {
-                // 清空之前的句子
                 setSentences([]);
-
-                // 处理分段结果
                 const segments = response.data.segments || [];
                 const newSentences = segments.map(s => s.text.trim());
                 setSentences(newSentences);
-
                 const fullText = newSentences.join(' ');
                 setFullTranscript(fullText);
                 finalTranscriptRef.current = fullText;
-
                 setCurrentInterim('');
-
-                console.log(`Whisper 识别完成: ${newSentences.length} 个句子`);
+                console.log(`Whisper 识别完成: ${newSentences.length} 个句子, 模型: ${modelSize}`);
             } else {
                 console.error('Whisper 识别失败:', response.data.error);
-                alert('Whisper 识别失败，请重试');
+                // 识别失败时显示提示
+                setSentences(['识别失败，请重试']);
+                setFullTranscript('识别失败，请重试');
             }
         } catch (error) {
             console.error('Whisper 请求失败:', error);
-            alert('Whisper 服务未响应，请检查后端服务');
+            setSentences(['服务未响应，请检查后端']);
+            setFullTranscript('服务未响应，请检查后端');
         } finally {
             setLoading(false);
-            // 确保录音状态被重置
-            setIsRecording(false);
+            isProcessingRef.current = false;
         }
+    };
+
+    // 统一的音频处理函数 - 两种模式都使用 Whisper
+    const handleAudioBlob = (blob, audioUrl) => {
+        console.log('收到音频 Blob，保存用于回放, engine:', recognitionEngine);
+
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+        }
+        setAudioUrl(audioUrl);
+        audioUrlRef.current = audioUrl;
+
+        // 快速模式用 tiny 模型（更快），精准模式用 small 模型（更准）
+        const modelSize = recognitionEngine === 'whisper' ? 'small' : 'tiny';
+        transcribeWithWhisper(blob, modelSize);
     };
 
     // 雅思 Part1 高频话题
@@ -96,8 +111,6 @@ function SpeakingPractice() {
 
     const [selectedScenario, setSelectedScenario] = useState(null);
 
-    // 将原有的 speakText 和 doSpeak 替换为以下代码
-
     // TTS 语音合成 - 防止循环朗读
     const speakText = (text) => {
         if (!window.speechSynthesis) {
@@ -105,19 +118,15 @@ function SpeakingPractice() {
             return;
         }
 
-        // 先完全停止当前朗读
         window.speechSynthesis.cancel();
 
-        // 清除之前的定时器
         if (speakTimeoutRef.current) {
             clearTimeout(speakTimeoutRef.current);
         }
 
-        // 重置状态
         isSpeakingRef.current = false;
         setIsSpeaking(false);
 
-        // 延迟后开始新朗读，确保取消完成
         speakTimeoutRef.current = setTimeout(() => {
             doSpeak(text);
             speakTimeoutRef.current = null;
@@ -125,10 +134,8 @@ function SpeakingPractice() {
     };
 
     const doSpeak = (text) => {
-        // 提取英文内容
         let plainText = text;
 
-        // 移除 Markdown 标记
         plainText = plainText.replace(/\*\*([^*]+)\*\*/g, '$1');
         plainText = plainText.replace(/\*([^*]+)\*/g, '$1');
         plainText = plainText.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
@@ -136,7 +143,6 @@ function SpeakingPractice() {
         plainText = plainText.replace(/```[\s\S]*?```/g, '');
         plainText = plainText.replace(/^#{1,6}\s+/gm, '');
 
-        // 提取英文句子
         const englishSentences = plainText.match(/[A-Z][A-Za-z\s,;:()'"!?.-]+[.!?]/g);
 
         if (englishSentences && englishSentences.length > 0) {
@@ -183,7 +189,6 @@ function SpeakingPractice() {
         window.speechSynthesis.speak(utterance);
     };
 
-    // 停止语音
     const stopSpeaking = () => {
         if (window.speechSynthesis) {
             window.speechSynthesis.cancel();
@@ -191,7 +196,6 @@ function SpeakingPractice() {
         }
     };
 
-    // 处理句子（最终结果）
     const handleSentence = (sentence, isFinal) => {
         console.log('=== handleSentence ===', sentence, isFinal);
         if (isFinal && sentence) {
@@ -206,73 +210,54 @@ function SpeakingPractice() {
         }
     };
 
-    // 处理中间结果（实时预览）
     const handleTranscript = (text, isFinal) => {
         if (!isFinal) {
             setCurrentInterim(text);
         }
     };
 
-    // 清空对话
     const clearConversation = () => {
         setSentences([]);
         setCurrentInterim('');
         setFullTranscript('');
         setAiResponse('');
         finalTranscriptRef.current = '';
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+        }
         setAudioUrl(null);
-        audioChunksRef.current = [];
         stopSpeaking();
     };
 
-    // 清空历史记录
     const clearHistory = () => {
         setConversationHistory([]);
         clearConversation();
     };
 
-    // 开始录音时同时录制音频
     const handleRecordingStart = () => {
         console.log('开始录音');
         setIsRecording(true);
-        audioChunksRef.current = [];
-        setAudioUrl(null);
-        
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                mediaRecorderRef.current = new MediaRecorder(stream);
-                mediaRecorderRef.current.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunksRef.current.push(event.data);
-                    }
-                };
-                mediaRecorderRef.current.onstop = () => {
-                    const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                    const url = URL.createObjectURL(blob);
-                    setAudioUrl(url);
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                mediaRecorderRef.current.start();
-            })
-            .catch(err => console.error('无法获取麦克风:', err));
-    };
-
-    // 普通停止录音（Web Speech 模式）
-    const handleRecordingStopNormal = () => {
-        console.log('停止录音 (Web Speech)');
-        setIsRecording(false);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
+        // 清空旧的音频 URL
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
         }
+        setAudioUrl(null);
     };
 
-    // Whisper 模式下的处理（由 onAudioBlob 直接调用）
-    const handleWhisperAudioBlob = (blob) => {
-        console.log('收到音频 Blob，调用 Whisper');
-        transcribeWithWhisper(blob);
+    const handleRecordingStop = () => {
+        console.log('停止录音');
+        setIsRecording(false);
     };
 
-    // AI 分析（支持场景化对话）
+    // 清理 URL
+    useEffect(() => {
+        return () => {
+            if (audioUrlRef.current) {
+                URL.revokeObjectURL(audioUrlRef.current);
+            }
+        };
+    }, []);
+
     const analyzeWithAI = async () => {
         const currentTranscript = fullTranscript || sentences.join(' ');
         if (!currentTranscript.trim()) {
@@ -282,9 +267,7 @@ function SpeakingPractice() {
 
         setLoading(true);
         
-        // 构建提示词（根据模式不同）
         let analysisPrompt;
-        // 在 analyzeWithAI 函数中，修改对话模式的 prompt
         if (isConversationMode && selectedScenario) {
             const historyText = conversationHistory.map(h => 
                 `${h.role === 'user' ? 'Student' : 'AI'}: ${h.content}`
@@ -303,7 +286,6 @@ function SpeakingPractice() {
 
         Your response:`;
         } else {
-            // 评分模式
             analysisPrompt = `你是雅思考官。评分学生回答：
 
 话题：${selectedTopic?.question || '口语练习'}
@@ -333,21 +315,12 @@ function SpeakingPractice() {
                 const aiMessage = response.data.answer;
                 setAiResponse(aiMessage);
 
-                // 添加到对话历史
                 setConversationHistory(prev => [
                     ...prev,
                     { role: 'user', content: currentTranscript, timestamp: new Date() },
                     { role: 'ai', content: aiMessage, timestamp: new Date() }
                 ]);
 
-                // 删除自动朗读部分（注释掉）
-                // if (isConversationMode) {
-                //     setTimeout(() => {
-                //         speakText(aiMessage);
-                //     }, 100);
-                // }
-
-                // 清空当前句子
                 if (isConversationMode) {
                     setSentences([]);
                     setFullTranscript('');
@@ -364,14 +337,12 @@ function SpeakingPractice() {
         }
     };
 
-    // 开始对话模式
     const startConversation = (scenario) => {
         setSelectedScenario(scenario);
         setIsConversationMode(true);
         setConversationHistory([]);
         clearConversation();
         
-        // 生成开场白
         const openingPrompt = `${scenario.systemPrompt}\n\n请用英文说一句开场白，开始对话。`;
         
         axios.post(`${API_BASE}/api/ai/ask`, {
@@ -383,12 +354,10 @@ function SpeakingPractice() {
                 const opening = response.data.answer;
                 setAiResponse(opening);
                 setConversationHistory([{ role: 'ai', content: opening, timestamp: new Date() }]);
-                // speakText(opening);
             }
         }).catch(err => console.error('开场白生成失败:', err));
     };
 
-    // 退出对话模式
     const exitConversationMode = () => {
         setIsConversationMode(false);
         setSelectedScenario(null);
@@ -448,7 +417,7 @@ function SpeakingPractice() {
                     💬 场景对话模式
                 </button>
 
-                {/* 识别引擎选择 - 新增 */}
+                {/* 识别引擎选择 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                     <span style={{ fontSize: '13px', color: '#666' }}>识别引擎：</span>
                     <button
@@ -635,13 +604,13 @@ function SpeakingPractice() {
                 marginBottom: '24px',
                 border: isRecording ? '2px solid #ff4d4f' : '1px solid #e8e8e8',
                 transition: 'all 0.2s'
-            }}>
+            }}>                                
                 <VoiceRecorder
-                    onTranscript={handleTranscript}
-                    onSentence={handleSentence}
+                    key={recognitionEngine}
+                    onSentence={handleSentence}  // 不再需要，因为都用 Whisper
                     onRecordingStart={handleRecordingStart}
-                    onRecordingStop={recognitionEngine === 'whisper' ? null : handleRecordingStopNormal}
-                    onAudioBlob={recognitionEngine === 'whisper' ? handleWhisperAudioBlob : null}
+                    onRecordingStop={handleRecordingStop}
+                    onAudioBlob={handleAudioBlob}
                     disabled={(!isConversationMode && !selectedTopic) || (isConversationMode && !selectedScenario)}
                 />
                 
@@ -780,9 +749,9 @@ function SpeakingPractice() {
                     <div className="markdown-body" style={{ 
                         fontSize: '14px', 
                         lineHeight: '1.6',
-                        wordBreak: 'break-word',      // 强制换行
-                        whiteSpace: 'normal',         // 允许换行
-                        overflowWrap: 'break-word'    // 长单词换行
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word'
                     }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {aiResponse}
@@ -818,10 +787,10 @@ function SpeakingPractice() {
             }}>
                 <strong>💡 使用说明：</strong>
                 <ul style={{ margin: '8px 0 0 20px', lineHeight: '1.6' }}>
-                    <li><strong>雅思评分模式</strong>：选择话题 → 录音 → AI 给出评分和改进建议</li>
-                    <li><strong>场景对话模式</strong>：选择场景 → 与 AI 进行英文对话 → AI 会语音回复</li>
-                    <li>按住空格键开始录音，松开自动结束识别</li>
-                    <li>AI 会自动朗读回复，实现真正的对话练习</li>
+                    <li><strong>快速模式</strong>：使用 Web Speech API，实时识别，松开空格键立即停止</li>
+                    <li><strong>精准模式</strong>：使用 Whisper 本地模型，识别更准确，松开后自动识别</li>
+                    <li>两种模式都会保存录音回放，方便对比发音</li>
+                    <li>按住空格键开始录音，松开自动结束</li>
                 </ul>
             </div>
         </div>
