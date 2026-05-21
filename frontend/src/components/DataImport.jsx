@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import TextCorrectionModal from './TextCorrectionModal';
+import AIAssistantToolbar from './AIAssistantToolbar';
 
 // 在 DataImport.jsx 顶部，import 之后添加
 // 模型昵称和颜色映射（同学化）
