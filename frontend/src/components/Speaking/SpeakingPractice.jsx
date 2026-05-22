@@ -22,6 +22,10 @@ function SpeakingPractice() {
     const [conversationHistory, setConversationHistory] = useState([]);
     const [isConversationMode, setIsConversationMode] = useState(false);
     const [recognitionEngine, setRecognitionEngine] = useState('webspeech');
+    const [transcribing, setTranscribing] = useState(false);
+    const [recognitionStatus, setRecognitionStatus] = useState('');
+    const [lastTranscribeTime, setLastTranscribeTime] = useState(null);
+    const [answerTargetSeconds, setAnswerTargetSeconds] = useState(45);
     
     // Refs
     const audioUrlRef = useRef(null);
@@ -37,7 +41,10 @@ function SpeakingPractice() {
         }
 
         isProcessingRef.current = true;
-        setLoading(true);
+        setTranscribing(true);
+        const startedAt = performance.now();
+        setLastTranscribeTime(null);
+        setRecognitionStatus(modelSize === 'small' ? '精准识别中，首次加载模型会稍慢...' : '快速识别中...');
 
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.webm');
@@ -49,31 +56,36 @@ function SpeakingPractice() {
             if (response.data.success) {
                 setSentences([]);
                 const segments = response.data.segments || [];
-                const newSentences = segments.map(s => s.text.trim());
+                const newSentences = segments.map(s => s.text.trim()).filter(Boolean);
                 setSentences(newSentences);
-                const fullText = newSentences.join(' ');
+                const fullText = response.data.text || newSentences.join(' ');
                 setFullTranscript(fullText);
                 finalTranscriptRef.current = fullText;
                 setCurrentInterim('');
+                const elapsed = ((performance.now() - startedAt) / 1000).toFixed(1);
+                setLastTranscribeTime(elapsed);
+                setRecognitionStatus(`识别完成：${response.data.model_size || modelSize} 模型，用时 ${elapsed} 秒`);
                 console.log(`Whisper 识别完成: ${newSentences.length} 个句子, 模型: ${modelSize}`);
             } else {
                 console.error('Whisper 识别失败:', response.data.error);
                 // 识别失败时显示提示
                 setSentences(['识别失败，请重试']);
                 setFullTranscript('识别失败，请重试');
+                setRecognitionStatus('识别失败，请重试或切换快速模式');
             }
         } catch (error) {
             console.error('Whisper 请求失败:', error);
             setSentences(['服务未响应，请检查后端']);
             setFullTranscript('服务未响应，请检查后端');
+            setRecognitionStatus('Whisper 服务未响应，请检查后端或切换快速模式');
         } finally {
-            setLoading(false);
+            setTranscribing(false);
             isProcessingRef.current = false;
         }
     };
 
-    // 统一的音频处理函数 - 两种模式都使用 Whisper
-    const handleAudioBlob = (blob, audioUrl) => {
+    // 统一的音频处理函数：快速模式只保存回放，精准模式再交给 Whisper
+    const handleAudioBlob = (blob, audioUrl, options = {}) => {
         console.log('收到音频 Blob，保存用于回放, engine:', recognitionEngine);
 
         if (audioUrlRef.current) {
@@ -82,9 +94,12 @@ function SpeakingPractice() {
         setAudioUrl(audioUrl);
         audioUrlRef.current = audioUrl;
 
-        // 快速模式用 tiny 模型（更快），精准模式用 small 模型（更准）
-        const modelSize = recognitionEngine === 'whisper' ? 'small' : 'tiny';
-        transcribeWithWhisper(blob, modelSize);
+        if (!options.transcribe) {
+            setRecognitionStatus('快速模式已完成录音，浏览器实时识别结果可直接修改后提交');
+            return;
+        }
+
+        transcribeWithWhisper(blob, 'small');
     };
 
     // 雅思 Part1 高频话题
@@ -207,12 +222,19 @@ function SpeakingPractice() {
                 return newSentences;
             });
             setCurrentInterim('');
+            setRecognitionStatus('快速识别完成，可直接修改文本');
         }
     };
 
     const handleTranscript = (text, isFinal) => {
         if (!isFinal) {
             setCurrentInterim(text);
+            setRecognitionStatus('浏览器实时识别中...');
+            return;
+        }
+
+        if (text) {
+            setRecognitionStatus('快速识别完成，可直接修改文本');
         }
     };
 
@@ -221,6 +243,8 @@ function SpeakingPractice() {
         setCurrentInterim('');
         setFullTranscript('');
         setAiResponse('');
+        setRecognitionStatus('');
+        setLastTranscribeTime(null);
         finalTranscriptRef.current = '';
         if (audioUrlRef.current) {
             URL.revokeObjectURL(audioUrlRef.current);
@@ -237,6 +261,8 @@ function SpeakingPractice() {
     const handleRecordingStart = () => {
         console.log('开始录音');
         setIsRecording(true);
+        setRecognitionStatus(recognitionEngine === 'whisper' ? '录音中，松开后开始精准识别' : '录音中，浏览器实时识别');
+        setCurrentInterim('');
         // 清空旧的音频 URL
         if (audioUrlRef.current) {
             URL.revokeObjectURL(audioUrlRef.current);
@@ -247,6 +273,9 @@ function SpeakingPractice() {
     const handleRecordingStop = () => {
         console.log('停止录音');
         setIsRecording(false);
+        if (recognitionEngine === 'whisper') {
+            setRecognitionStatus('录音已结束，正在准备识别...');
+        }
     };
 
     // 清理 URL
@@ -451,6 +480,41 @@ function SpeakingPractice() {
                 </div>
             </div>
 
+            {!isConversationMode && (
+                <div style={{
+                    marginBottom: '20px',
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    background: '#f7f9fc',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #e6edf5'
+                }}>
+                    <span style={{ fontWeight: 'bold', color: '#333' }}>练习时长</span>
+                    {[30, 45, 60, 90].map(seconds => (
+                        <button
+                            key={seconds}
+                            onClick={() => setAnswerTargetSeconds(seconds)}
+                            style={{
+                                padding: '5px 12px',
+                                borderRadius: '16px',
+                                border: 'none',
+                                background: answerTargetSeconds === seconds ? '#1890ff' : '#e8e8e8',
+                                color: answerTargetSeconds === seconds ? 'white' : '#333',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {seconds}秒
+                        </button>
+                    ))}
+                    <span style={{ fontSize: '13px', color: '#666' }}>
+                        建议结构：直接回答 → 给原因 → 举例 → 简短收尾
+                    </span>
+                </div>
+            )}
+
             {/* 场景选择（对话模式） */}
             {isConversationMode && !selectedScenario && (
                 <div style={{ marginBottom: '24px' }}>
@@ -607,10 +671,12 @@ function SpeakingPractice() {
             }}>                                
                 <VoiceRecorder
                     key={recognitionEngine}
-                    onSentence={handleSentence}  // 不再需要，因为都用 Whisper
+                    onTranscript={handleTranscript}
+                    onSentence={handleSentence}
                     onRecordingStart={handleRecordingStart}
                     onRecordingStop={handleRecordingStop}
                     onAudioBlob={handleAudioBlob}
+                    transcribeAudio={recognitionEngine === 'whisper'}
                     disabled={(!isConversationMode && !selectedTopic) || (isConversationMode && !selectedScenario)}
                 />
                 
@@ -636,7 +702,7 @@ function SpeakingPractice() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <div style={{ fontWeight: 'bold' }}>
                         📝 识别结果
-                        {currentInterim && <span style={{ fontSize: '12px', color: '#999', marginLeft: '8px' }}>（识别中...）</span>}
+                        {(currentInterim || transcribing) && <span style={{ fontSize: '12px', color: '#999', marginLeft: '8px' }}>（识别中...）</span>}
                     </div>
                     {(sentences.length > 0 || fullTranscript) && (
                         <button
@@ -655,6 +721,12 @@ function SpeakingPractice() {
                         </button>
                     )}
                 </div>
+                {recognitionStatus && (
+                    <div style={{ fontSize: '12px', color: transcribing ? '#1890ff' : '#666', marginBottom: '8px' }}>
+                        {recognitionStatus}
+                        {lastTranscribeTime && <span style={{ marginLeft: '8px' }}>最近一次：{lastTranscribeTime}s</span>}
+                    </div>
+                )}
                 
                 {sentences.length > 0 ? (
                     sentences.map((s, idx) => (
@@ -666,6 +738,33 @@ function SpeakingPractice() {
                 ) : (
                     <div style={{ fontSize: '14px', color: '#999', minHeight: '40px' }}>
                         {currentInterim || (isConversationMode ? '按住空格键开始对话...' : '按住空格键开始录音...')}
+                    </div>
+                )}
+
+                {(fullTranscript || sentences.length > 0) && (
+                    <div style={{ marginTop: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
+                            可在提交前修正识别文本
+                        </div>
+                        <textarea
+                            value={fullTranscript}
+                            onChange={(e) => {
+                                setFullTranscript(e.target.value);
+                                finalTranscriptRef.current = e.target.value;
+                                setSentences(e.target.value ? [e.target.value] : []);
+                            }}
+                            rows={4}
+                            style={{
+                                width: '100%',
+                                boxSizing: 'border-box',
+                                padding: '10px',
+                                borderRadius: '6px',
+                                border: '1px solid #d9d9d9',
+                                fontSize: '14px',
+                                lineHeight: '1.5',
+                                resize: 'vertical'
+                            }}
+                        />
                     </div>
                 )}
                 
@@ -684,7 +783,7 @@ function SpeakingPractice() {
             </div>
 
             {/* AI 分析/回复按钮 */}
-            {(fullTranscript || sentences.length > 0) && !loading && (
+            {(fullTranscript || sentences.length > 0) && !loading && !transcribing && (
                 <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                     <button
                         onClick={analyzeWithAI}
@@ -734,6 +833,12 @@ function SpeakingPractice() {
             {loading && (
                 <div style={{ textAlign: 'center', padding: '20px', color: '#1890ff' }}>
                     {isConversationMode ? '🤖 AI 思考中...' : '🤖 AI 分析中，请稍候...'}
+                </div>
+            )}
+
+            {transcribing && (
+                <div style={{ textAlign: 'center', padding: '16px', color: '#1890ff' }}>
+                    🎧 正在识别录音，请稍候...
                 </div>
             )}
 
@@ -787,9 +892,9 @@ function SpeakingPractice() {
             }}>
                 <strong>💡 使用说明：</strong>
                 <ul style={{ margin: '8px 0 0 20px', lineHeight: '1.6' }}>
-                    <li><strong>快速模式</strong>：使用 Web Speech API，实时识别，松开空格键立即停止</li>
-                    <li><strong>精准模式</strong>：使用 Whisper 本地模型，识别更准确，松开后自动识别</li>
-                    <li>两种模式都会保存录音回放，方便对比发音</li>
+                    <li><strong>快速模式</strong>：使用浏览器实时识别，适合跟读和日常练习</li>
+                    <li><strong>精准模式</strong>：使用本地 Whisper small 模型，适合正式评分</li>
+                    <li>两种模式都会保存录音回放，提交前可以手动修正识别文本</li>
                     <li>按住空格键开始录音，松开自动结束</li>
                 </ul>
             </div>

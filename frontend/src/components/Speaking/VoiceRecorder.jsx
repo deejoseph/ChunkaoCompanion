@@ -6,6 +6,7 @@ function VoiceRecorder({
     onRecordingStop, 
     onSentence, 
     onAudioBlob,
+    transcribeAudio = false,
     disabled = false 
 }) {
     const [isRecording, setIsRecording] = useState(false);
@@ -21,8 +22,9 @@ function VoiceRecorder({
     const sourceRef = useRef(null);
     const analyserRef = useRef(null);
     const animationRef = useRef(null);
+    const isRecordingRef = useRef(false);
 
-    const isWhisperMode = !!onAudioBlob;
+    const isWhisperMode = transcribeAudio;
 
     const startAudioAnalysis = async (stream) => {
         try {
@@ -41,7 +43,7 @@ function VoiceRecorder({
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             
             const updateLevel = () => {
-                if (!isRecording) return;
+                if (!isRecordingRef.current) return;
                 analyser.getByteTimeDomainData(dataArray);
                 
                 let maxSample = 0;
@@ -163,12 +165,13 @@ function VoiceRecorder({
                         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                         const audioUrl = URL.createObjectURL(blob);
                         audioChunksRef.current = [];
-                        onAudioBlob(blob, audioUrl);
+                        onAudioBlob(blob, audioUrl, { transcribe: transcribeAudio });
                     }
                 };
 
                 mediaRecorder.start(100);
 
+                isRecordingRef.current = true;
                 setIsRecording(true);
                 setRecordingTime(0);
                 if (onRecordingStart) onRecordingStart();
@@ -221,6 +224,7 @@ function VoiceRecorder({
         
         stopAudioAnalysis();
         
+        isRecordingRef.current = false;
         setIsRecording(false);
         setRecordingTime(0);
         
@@ -261,6 +265,7 @@ function VoiceRecorder({
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
             }
+            isRecordingRef.current = false;
         };
     }, []);
 

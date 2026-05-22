@@ -9,6 +9,14 @@ scripts/
 !backend/scripts/
 !backend/scripts/*.py
 
+# 本地备份、资料包和运行时产物
+backup/
+*.7z
+debug_output.txt
+backend/uploads/
+backend/temp/
+backend/data/
+
 # 测试目录
 ollama-test/
 

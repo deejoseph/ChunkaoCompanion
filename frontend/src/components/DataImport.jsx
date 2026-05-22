@@ -1,35 +1,15 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import TextCorrectionModal from './TextCorrectionModal';
-import AIAssistantToolbar from './AIAssistantToolbar';
-
-// 在 DataImport.jsx 顶部，import 之后添加
-// 模型昵称和颜色映射（同学化）
-const getModelNickname = (model) => {
-    const nicknames = {
-        'qwen2.5:7b': '小明',
-        'qwen2.5:14b': '小红',
-        'glm4:9b': '小刚',
-        'qwen2.5-coder:7b': '小华',
-        'qwen2-math:1.5b': '小智',
-        'qwen2-math:7b': '小慧',
-        'gemma3:4b': '小美'
-    };
-    return nicknames[model] || model.split(':')[0];
-};
-
-const getModelColor = (model) => {
-    const colors = {
-        'qwen2.5:7b': '#1890ff',
-        'qwen2.5:14b': '#52c41a',
-        'glm4:9b': '#722ed1',
-        'qwen2.5-coder:7b': '#eb2f96',
-        'qwen2-math:1.5b': '#13c2c2',
-        'qwen2-math:7b': '#fa8c16',
-        'gemma3:4b': '#2f54eb'
-    };
-    return colors[model] || '#999';
-};
+import {
+    detectQuestionType,
+    detectSpecificQuestionType,
+    extractTopicFromFilename,
+    getModelColor,
+    getModelNickname,
+    makeAIReferenceTitle,
+    makeSafeFileName
+} from './DataImport/dataImportUtils';
 
 function DataImport() {
     const [subject, setSubject] = useState('chinese');
@@ -88,37 +68,6 @@ function DataImport() {
     const [batchQuestions, setBatchQuestions] = useState([]);
     const [batchCurrentIndex, setBatchCurrentIndex] = useState(0);   
 
-    // 题型识别函数
-    const detectQuestionType = (content) => {
-        if (!content) return 'qa';
-        if (/[A-D][.．、)]/.test(content) || /^[A-D]\s*[.．、)]/.test(content)) return 'choice';
-        if (/_{2,}|____|（\s*）|\(\s*\)/.test(content)) return 'fill';
-        if (/默写|填空|补全/.test(content)) return 'fill';
-        return 'qa';
-    };
-    
-    // ========== 识别具体题型（默写/填空/选择/问答） ==========
-    const detectSpecificQuestionType = (content) => {
-        // 1. 选择题优先（选项模式）
-        if (/[A-D][.．、)]/.test(content) || /^[A-D]\s*[.．、)]/.test(content)) {
-            return { type: 'choice', label: '选择题' };
-        }
-        // 2. 默写题
-        if (content.includes('默写') || content.includes('补写') || content.includes('名篇') || content.includes('名句')) {
-            return { type: 'recite', label: '默写题' };
-        }
-        // 3. 成语题（包含"成语使用恰当"等关键词）
-        if (content.includes('成语') && (content.includes('使用恰当') || content.includes('运用恰当'))) {
-            return { type: 'choice', label: '选择题' };
-        }
-        // 4. 填空题
-        if (/_{2,}|____|（\s*）|\(\s*\)/.test(content)) {
-            return { type: 'fill', label: '填空题' };
-        }
-        // 5. 问答题
-        return { type: 'qa', label: '问答题' };
-    };
-    
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
         const subjectName = getSubjectLabel();
@@ -177,35 +126,6 @@ function DataImport() {
             return customVersion || 'custom';
         }
         return version;
-    };
-
-    const extractTopicFromFilename = (filename) => {
-        if (!filename) return '';
-        let name = filename.replace(/\.(pdf|docx)$/i, '');
-        name = name.replace(/（教师版）$/, '')
-                   .replace(/\(教师版\)$/, '')
-                   .replace(/（学生版）$/, '')
-                   .replace(/\(学生版\)$/, '')
-                   .replace(/教师版$/, '')
-                   .replace(/学生版$/, '')
-                   .trim();
-        return name;
-    };
-
-    const makeAIReferenceTitle = (title) => {
-        const base = (title || '').trim();
-        if (!base) return base;
-        if (base.includes('AI参考答案')) return base;
-        if (base.includes('教师版')) return base.replace(/教师版(?!.*教师版)/, 'AI参考答案');
-        if (base.includes('（教师版）')) return base.replace(/（教师版）(?!.*（教师版）)/, '（AI参考答案）');
-        if (base.includes('(教师版)')) return base.replace(/\(教师版\)(?!.*\(教师版\))/, '(AI参考答案)');
-        return `${base}（AI参考答案）`;
-    };
-
-    const makeSafeFileName = (title) => {
-        return makeAIReferenceTitle(title)
-            .replace(/[\\/:*?"<>|]/g, '_')
-            .replace(/\s+/g, '_');
     };
 
     const getSubjectLabel = () => {

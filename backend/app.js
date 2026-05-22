@@ -10,6 +10,7 @@ const banksRouter = require('./routes/banks');
 const apiConfigRouter = require('./routes/apiConfig');
 const whisperRouter = require('./routes/whisper');
 const internationalRouter = require('./routes/international');
+const knowledgeRouter = require('./routes/knowledge');
 
 const app = express();
 const PORT = 3001;
@@ -20,6 +21,7 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 app.use('/api/whisper', whisperRouter);
 app.use('/api/international', internationalRouter);
+app.use('/api/knowledge', knowledgeRouter);
 
 // ========== 路由注册（必须在 app.listen 之前） ==========
 app.use('/api/docs', docsRouter);
@@ -71,4 +73,5 @@ app.listen(PORT, () => {
     console.log(`OCR接口: POST http://localhost:${PORT}/api/ocr/recognize`);
     console.log(`AI验证接口: POST http://localhost:${PORT}/api/ai/validate`);
     console.log(`题库接口: POST http://localhost:${PORT}/api/banks/save`);
+    console.log(`知识点接口: GET http://localhost:${PORT}/api/knowledge/summary`);
 });
