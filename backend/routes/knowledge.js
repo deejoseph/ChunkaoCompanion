@@ -1,8 +1,9 @@
-const express = require('express');
-const path = require('path');
 const { execFile } = require('child_process');
-
+const express = require('express');
 const router = express.Router();
+const sqlite3 = require('sqlite3').verbose();
+const { open } = require('sqlite');
+const path = require('path');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'python';
@@ -105,6 +106,60 @@ router.get('/questions', async (req, res) => {
         const result = await runPython(QUERY_SCRIPT, args);
         res.json(result);
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 获取专题下所有题目的原答案（用于 AI 参考答案中的参考资料）
+router.get('/source-answers', async (req, res) => {
+    const { subject, title } = req.query;
+    
+    console.log('收到 source-answers 请求:', { subject, title });
+    
+    try {
+        const db = await open({
+            filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+        
+        // 清理标题
+        let cleanTitle = title || '';
+        cleanTitle = cleanTitle.replace(/（教师版）/, '');
+        cleanTitle = cleanTitle.replace(/（学生版）/, '');
+        cleanTitle = cleanTitle.replace(/（复习讲义）/, '');
+        cleanTitle = cleanTitle.replace(/（上海专用）/, '');
+        cleanTitle = cleanTitle.replace(/\(教师版\)/, '');
+        cleanTitle = cleanTitle.replace(/\(学生版\)/, '');
+        cleanTitle = cleanTitle.trim();
+        
+        console.log('清理后的标题:', cleanTitle);
+        
+        // 查找匹配的题库
+        const bank = await db.get(
+            `SELECT id FROM question_banks 
+             WHERE subject_id = ? AND title LIKE ? 
+             LIMIT 1`,
+            [subject, `%${cleanTitle}%`]
+        );
+        
+        console.log('找到的题库:', bank);
+        
+        let answers = [];
+        if (bank) {
+            answers = await db.all(
+                `SELECT number, source_answer FROM questions 
+                 WHERE bank_id = ? 
+                 ORDER BY number ASC`,
+                [bank.id]
+            );
+            console.log('找到的答案数量:', answers.length);
+        }
+        
+        await db.close();
+        
+        res.json({ success: true, answers: answers });
+    } catch (error) {
+        console.error('获取原答案失败:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

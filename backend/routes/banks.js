@@ -2,6 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const router = express.Router();
+const sqlite3 = require('sqlite3').verbose();
+const { open } = require('sqlite');
 
 // 答案库目录
 const BANKS_DIR = path.join(__dirname, '../../data/question_banks');
@@ -21,34 +23,34 @@ function normalizeTitle(title = '') {
         .trim();
 }
 
-// 获取所有题库列表
-router.get('/list', (req, res) => {
+// 获取所有题库列表（从数据库读取）
+router.get('/list', async (req, res) => {
     try {
-        const files = fs.readdirSync(BANKS_DIR);
-        const banks = files
-            .filter(f => f.endsWith('_question_bank.json'))
-            .map(f => {
-                const filePath = path.join(BANKS_DIR, f);
-                const content = fs.readFileSync(filePath, 'utf-8');
-                const data = JSON.parse(content);
-                return {
-                    id: f.replace('_question_bank.json', ''),
-                    title: data.title,
-                    subject: data.subject,
-                    version: data.version,
-                    totalQuestions: data.totalQuestions,
-                    file: f
-                };
-            });
+        const db = await open({
+            filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+        
+        const banks = await db.all(
+            `SELECT id, title, subject_id as subject, version_id as version, total_questions as totalQuestions 
+             FROM question_banks 
+             ORDER BY created_at DESC`
+        );
+        
+        await db.close();
+        
         res.json({ success: true, banks: banks });
     } catch (error) {
+        console.error('获取题库列表失败:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// 搜索题库（根据学科和专题名称）
+// 搜索题库（从 JSON 文件读取）
 router.get('/search', (req, res) => {
     const { subject, title } = req.query;
+    
+    console.log('搜索参数:', { subject, title });
     
     if (!subject && !title) {
         return res.status(400).json({ success: false, error: '缺少搜索参数' });
@@ -56,7 +58,8 @@ router.get('/search', (req, res) => {
     
     try {
         const files = fs.readdirSync(BANKS_DIR);
-        let targetFile = null;
+        let bestMatch = null;
+        let bestScore = 0;
         
         for (const file of files) {
             if (!file.endsWith('_question_bank.json')) continue;
@@ -64,47 +67,47 @@ router.get('/search', (req, res) => {
             const filePath = path.join(BANKS_DIR, file);
             const content = fs.readFileSync(filePath, 'utf-8');
             const data = JSON.parse(content);
-            const normalizedDataTitle = normalizeTitle(data.title);
-            const normalizedQueryTitle = normalizeTitle(title);
             
-            // 按学科和标题匹配
-            if (subject && title) {
-                if (data.subject === subject && (
-                    data.title === title ||
-                    normalizedDataTitle === normalizedQueryTitle ||
-                    normalizedDataTitle.includes(normalizedQueryTitle) ||
-                    normalizedQueryTitle.includes(normalizedDataTitle)
-                )) {
-                    targetFile = file;
-                    break;
+            // 学科必须匹配
+            if (subject && data.subject !== subject) continue;
+            
+            let score = 0;
+            
+            // 标题匹配度计算
+            if (title) {
+                const normalizedTitle = title
+                    .replace(/（教师版）|（学生版）|（复习讲义）|（上海专用）|\(教师版\)|\(学生版\)/g, '')
+                    .trim();
+                const normalizedDataTitle = data.title
+                    .replace(/（教师版）|（学生版）|（AI参考答案）|（复习讲义）|（上海专用）|\(教师版\)|\(学生版\)/g, '')
+                    .trim();
+                
+                if (normalizedDataTitle === normalizedTitle) {
+                    score = 100;
+                } else if (normalizedDataTitle.includes(normalizedTitle) || normalizedTitle.includes(normalizedDataTitle)) {
+                    score = 50;
+                } else if (file.includes(title.replace(/\s/g, ''))) {
+                    score = 30;
                 }
-            } else if (subject) {
-                if (data.subject === subject) {
-                    targetFile = file;
-                    break;
-                }
-            } else if (title) {
-                if (
-                    data.title === title ||
-                    normalizedDataTitle === normalizedQueryTitle ||
-                    normalizedDataTitle.includes(normalizedQueryTitle) ||
-                    normalizedQueryTitle.includes(normalizedDataTitle)
-                ) {
-                    targetFile = file;
-                    break;
-                }
+            } else {
+                score = 10;
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestMatch = data;
             }
         }
         
-        if (targetFile) {
-            const filePath = path.join(BANKS_DIR, targetFile);
-            const content = fs.readFileSync(filePath, 'utf-8');
-            const bank = JSON.parse(content);
-            res.json({ success: true, bank: bank });
+        if (bestMatch) {
+            console.log('匹配成功:', bestMatch.title);
+            res.json({ success: true, bank: bestMatch });
         } else {
+            console.log('未找到匹配的题库');
             res.json({ success: true, bank: null });
         }
     } catch (error) {
+        console.error('搜索失败:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -127,30 +130,60 @@ router.get('/:id', (req, res) => {
     }
 });
 
-// 保存题库
-router.post('/save', (req, res) => {
-    const { paperId, title, subject, version, knowledgePoints, questions } = req.body;
+// 保存题库（同时保存到数据库）
+router.post('/save', async (req, res) => {
+    const { paperId, title, sourceTitle, subject, version, knowledgePoints, questions } = req.body;
     
     if (!paperId || !title) {
         return res.status(400).json({ success: false, error: '缺少必要参数' });
     }
     
-    const bankData = {
-        paperId,
-        title,
-        subject,
-        version,
-        knowledgePoints: knowledgePoints || [],
-        totalQuestions: questions.length,
-        questions: questions
-    };
-    
-    const filePath = path.join(BANKS_DIR, `${paperId}_question_bank.json`);
-    
     try {
+        const db = await open({
+            filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+        
+        // 保存或更新 question_banks
+        await db.run(
+            `INSERT OR REPLACE INTO question_banks 
+             (id, title, source_title, subject_id, version_id, total_questions, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+            [paperId, title, sourceTitle || title, subject, version, questions.length]
+        );
+        
+        // 保存题目
+        for (const q of questions) {
+            await db.run(
+                `INSERT OR REPLACE INTO questions 
+                 (id, bank_id, subject_id, version_id, number, original_number, type, content, 
+                  source_answer, final_answer, analysis, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+                [`${paperId}_${q.id}`, paperId, subject, version, 
+                 parseInt(q.id.replace('q', '')), q.id, q.type, q.content,
+                 q.sourceAnswer, q.finalAnswer || '', q.analysis || '']
+            );
+        }
+        
+        await db.close();
+        
+        // 同时也保存到 JSON 文件作为备份
+        const bankData = {
+            paperId,
+            title,
+            subject,
+            version,
+            knowledgePoints: knowledgePoints || [],
+            totalQuestions: questions.length,
+            questions: questions
+        };
+        
+        const filePath = path.join(BANKS_DIR, `${paperId}_question_bank.json`);
         fs.writeFileSync(filePath, JSON.stringify(bankData, null, 2), 'utf-8');
-        res.json({ success: true, message: '保存成功', file: filePath });
+        
+        res.json({ success: true, message: '保存成功' });
     } catch (error) {
+        console.error('保存失败:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -201,6 +234,35 @@ router.delete('/subject/:subject', (req, res) => {
         });
     } catch (error) {
         console.error('删除学科失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 更新题目的 source_answer（通过 original_number 查找）
+router.post('/update-answer', async (req, res) => {
+    const { questionNumber, bankId, sourceAnswer } = req.body;
+    
+    try {
+        const db = await open({
+            filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+        
+        const result = await db.run(
+            `UPDATE questions SET source_answer = ?, updated_at = datetime('now') 
+             WHERE original_number = ? AND bank_id = ?`,
+            [sourceAnswer, questionNumber, bankId]
+        );
+        
+        await db.close();
+        
+        if (result.changes === 0) {
+            return res.json({ success: false, error: '未找到对应题目' });
+        }
+        
+        res.json({ success: true, message: '答案已更新' });
+    } catch (error) {
+        console.error('更新答案失败:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

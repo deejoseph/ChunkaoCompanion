@@ -1,21 +1,20 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { getModelNickname } from '../utils/nicknameHelper';  // 🔥 导入工具函数
+import { getModelNickname } from '../utils/nicknameHelper';
 
 function AIAnswerReference({ currentTopic, subject }) {
     const [isOpen, setIsOpen] = useState(false);
     const [bank, setBank] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [sourceAnswersMap, setSourceAnswersMap] = useState({});
 
     useEffect(() => {
         if (isOpen && currentTopic) {
-            loadAnswerBank();
+            loadData();
         }
     }, [isOpen, currentTopic, subject]);
-    
-    // 🔥 删除硬编码的 getModelNickname 函数，改用导入的
-    // 保留颜色映射（可选）
+
     const getModelColor = (model) => {
         const colors = {
             'qwen2.5:7b': '#1890ff',
@@ -29,10 +28,12 @@ function AIAnswerReference({ currentTopic, subject }) {
         return colors[model] || '#999';
     };
 
-    const loadAnswerBank = async () => {
+    const loadData = async () => {
         setLoading(true);
         setError(null);
+        
         try {
+            // 1. 从 JSON 加载 AI 参考答案
             let searchTitle = currentTopic;
             searchTitle = searchTitle.replace(/（教师版）/, '');
             searchTitle = searchTitle.replace(/（学生版）/, '');
@@ -42,40 +43,75 @@ function AIAnswerReference({ currentTopic, subject }) {
             searchTitle = searchTitle.replace(/\(学生版\)/, '');
             searchTitle = searchTitle.trim();
 
-            console.log('原始专题名:', currentTopic);
-            console.log('搜索用专题名:', searchTitle);
+            console.log('搜索标题:', searchTitle);
 
-            const response = await axios.get('http://localhost:3001/api/banks/search', {
-                params: {
-                    subject: subject,
-                    title: searchTitle
-                }
-            });
-
-            if (response.data.success && response.data.bank) {
-                setBank(response.data.bank);
-            } else {
-                const shortTitle = searchTitle.substring(0, 10);
-                const response2 = await axios.get('http://localhost:3001/api/banks/search', {
-                    params: {
-                        subject: subject,
-                        title: shortTitle
-                    }
-                });
-                if (response2.data.success && response2.data.bank) {
-                    setBank(response2.data.bank);
-                } else {
-                    setError('未找到 AI 验证答案库\n专题名称：' + searchTitle);
-                }
+            const jsonUrl = `http://localhost:3001/api/banks/search?subject=${subject}&title=${encodeURIComponent(searchTitle)}&_=${Date.now()}`;
+            const jsonResponse = await axios.get(jsonUrl);
+            
+            let bankData = null;
+            if (jsonResponse.data.success && jsonResponse.data.bank) {
+                bankData = jsonResponse.data.bank;
             }
+            
+            if (!bankData) {
+                setError('未找到 AI 验证答案库\n专题名称：' + searchTitle);
+                setLoading(false);
+                return;
+            }
+            
+            // 2. 从数据库获取原试卷答案（source_answer）
+            const dbUrl = `http://localhost:3001/api/knowledge/source-answers?subject=${subject}&title=${encodeURIComponent(currentTopic)}&_=${Date.now()}`;
+            const dbResponse = await axios.get(dbUrl);
+            
+            const answersMap = {};
+            if (dbResponse.data.success && dbResponse.data.answers) {
+                dbResponse.data.answers.forEach(item => {
+                    // 统一转为字符串类型
+                    answersMap[String(item.number)] = item.source_answer;
+                });
+            }
+            
+            console.log('数据库原试卷答案映射:', answersMap);
+            console.log('第一个题目的编号:', bankData.questions[0]?.number, '类型:', typeof bankData.questions[0]?.number);
+            
+            setSourceAnswersMap(answersMap);
+            setBank(bankData);
+            
         } catch (err) {
-            console.error('加载答案库失败:', err);
-            setError('加载失败');
+            console.error('加载失败:', err);
+            setError('加载失败: ' + err.message);
         }
         setLoading(false);
     };
-    
+
+    const updateAnswerInDatabase = async (questionNumber, newAnswer) => {
+        try {
+            const bankId = bank?.paperId || bank?.id;
+            
+            const response = await axios.post('http://localhost:3001/api/banks/update-answer', {
+                questionNumber: questionNumber,
+                bankId: bankId,
+                sourceAnswer: newAnswer
+            });
+            
+            if (response.data.success) {
+                // 更新本地映射
+                setSourceAnswersMap(prev => ({
+                    ...prev,
+                    [String(questionNumber)]: newAnswer
+                }));
+                alert('答案已修正！');
+            } else {
+                alert('修正失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('更新答案失败:', error);
+            alert('更新失败，请检查网络');
+        }
+    };
+
     const formatAnswer = (answer) => {
+        if (!answer) return '暂无';
         if (Array.isArray(answer)) {
             return answer.join(' / ');
         }
@@ -168,62 +204,89 @@ function AIAnswerReference({ currentTopic, subject }) {
                                     <div><strong>题目数量：</strong> {bank.totalQuestions}</div>
                                 </div>
                                 
-                                {bank.questions.map((q, idx) => (
-                                    <div key={idx} style={{
-                                        marginBottom: '20px',
-                                        padding: '12px',
-                                        borderBottom: '1px solid #eee',
-                                        background: '#fafafa',
-                                        borderRadius: '8px'
-                                    }}>
-                                        <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#1890ff' }}>
-                                            题目 {idx + 1}
-                                        </div>
-                                        <div style={{ fontSize: '13px', marginBottom: '8px', color: '#333', lineHeight: '1.6' }}>
-                                            {q.content}
-                                        </div>
-                                        {/* 参考答案区域 - 区分同学和资料 */}
-                                        <div style={{
-                                            background: '#f6ffed',
-                                            padding: '10px',
-                                            borderRadius: '6px',
-                                            marginTop: '8px',
-                                            borderLeft: '3px solid #52c41a'
+                                {bank.questions.map((q, idx) => {
+                                    const questionNumber = idx + 1;
+                                    const sourceAnswer = sourceAnswersMap[String(questionNumber)] || '';
+
+                                    return (
+                                        <div key={idx} style={{
+                                            marginBottom: '20px',
+                                            padding: '12px',
+                                            borderBottom: '1px solid #eee',
+                                            background: '#fafafa',
+                                            borderRadius: '8px'
                                         }}>
-                                            <div style={{ color: '#52c41a', fontWeight: 'bold', marginBottom: '4px' }}>
-                                                👨‍🎓 同学的想法
+                                            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#1890ff' }}>
+                                                题目 {questionNumber}
                                             </div>
-                                            <div>{formatAnswer(q.aiSuggestedAnswer || '暂无')}</div>
+                                            <div style={{ fontSize: '13px', marginBottom: '8px', color: '#333', lineHeight: '1.6' }}>
+                                                {q.content}
+                                            </div>
 
-                                            {/* 🔥 修改这里：使用昵称工具函数 */}
-                                            {q.aiAnswers && Object.keys(q.aiAnswers).length > 1 && (
-                                                <details style={{ marginTop: '8px' }}>
-                                                    <summary style={{ fontSize: '12px', color: '#999', cursor: 'pointer' }}>看看其他同学的想法</summary>
-                                                    <div style={{ marginTop: '6px' }}>
-                                                        {Object.entries(q.aiAnswers).map(([model, answer]) => (
-                                                            <div key={model} style={{ fontSize: '12px', marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
-                                                                <strong style={{ color: getModelColor(model) }}>
-                                                                    🧑‍🎓 {getModelNickname(subject, model)}  {/* 🔥 关键修改：传入 subject 和 model */}
-                                                                </strong>: {answer}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </details>
-                                            )}
+                                            {/* 原试卷答案区域 */}
+                                            <div style={{
+                                                background: '#f6ffed',
+                                                padding: '10px',
+                                                borderRadius: '6px',
+                                                marginTop: '8px',
+                                                borderLeft: '3px solid #52c41a'
+                                            }}>
+                                                <div style={{ color: '#52c41a', fontWeight: 'bold', marginBottom: '4px' }}>
+                                                    📖 原试卷答案
+                                                </div>
+                                                <div>{formatAnswer(sourceAnswer)}</div>
 
-                                            {q.sourceAnswer && (
+                                                {/* 其他同学的想法（AI 答案） */}
+                                                {q.aiAnswers && Object.keys(q.aiAnswers).length > 0 && (
+                                                    <details style={{ marginTop: '8px' }}>
+                                                        <summary style={{ fontSize: '12px', color: '#999', cursor: 'pointer' }}>🤖 AI 同学的想法（仅供参考）</summary>
+                                                        <div style={{ marginTop: '6px' }}>
+                                                            {Object.entries(q.aiAnswers).map(([model, answer]) => (
+                                                                <div key={model} style={{ fontSize: '12px', marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
+                                                                    <strong style={{ color: getModelColor(model) }}>
+                                                                        🧑‍🎓 {getModelNickname(subject, model)}
+                                                                    </strong>: {answer}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                )}
+
+                                                {/* 修正按钮 */}
                                                 <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #d9d9d9' }}>
-                                                    <div style={{ color: '#999', fontSize: '12px' }}>
-                                                        📖 参考资料：{formatAnswer(q.sourceAnswer)}
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+                                                        <button
+                                                            onClick={() => {
+                                                                const currentAnswers = sourceAnswer;
+                                                                const newAnswer = window.prompt(
+                                                                    '请用【空格】分隔每个答案\n\n示例：虽与日月争光可也 纵一苇之所如 赤壁赋 万里悲秋常作客 百年多病独登台\n\n注意：答案内部请不要包含空格\n\n当前答案：',
+                                                                    currentAnswers
+                                                                );
+                                                                if (newAnswer !== null && newAnswer.trim()) {
+                                                                    updateAnswerInDatabase(questionNumber, newAnswer.trim());
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                padding: '2px 10px',
+                                                                background: '#fa8c16',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                cursor: 'pointer',
+                                                                fontSize: '11px'
+                                                            }}
+                                                        >
+                                                            ✏️ 修正答案
+                                                        </button>
                                                     </div>
                                                     <div style={{ fontSize: '11px', color: '#ccc', marginTop: '4px' }}>
-                                                        💡 提示：参考资料仅供参考，建议和同学讨论后再确认
+                                                        💡 提示：点击修正可更新数据库中的标准答案
                                                     </div>
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : null}
                     </div>

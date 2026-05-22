@@ -11,19 +11,21 @@ const apiConfigRouter = require('./routes/apiConfig');
 const whisperRouter = require('./routes/whisper');
 const internationalRouter = require('./routes/international');
 const knowledgeRouter = require('./routes/knowledge');
+const answerSheetRouter = require('./routes/answerSheet');
 
 const app = express();
 const PORT = 3001;
 
+// ========== 中间件（必须在路由之前） ==========
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// ========== 路由注册 ==========
+app.use('/api/answer-sheet', answerSheetRouter);
 app.use('/api/whisper', whisperRouter);
 app.use('/api/international', internationalRouter);
 app.use('/api/knowledge', knowledgeRouter);
-
-// ========== 路由注册（必须在 app.listen 之前） ==========
 app.use('/api/docs', docsRouter);
 app.use('/api/exams', examsRouter);
 app.use('/api/listening', listeningRouter);
@@ -74,4 +76,5 @@ app.listen(PORT, () => {
     console.log(`AI验证接口: POST http://localhost:${PORT}/api/ai/validate`);
     console.log(`题库接口: POST http://localhost:${PORT}/api/banks/save`);
     console.log(`知识点接口: GET http://localhost:${PORT}/api/knowledge/summary`);
+    console.log(`答题卡接口: POST http://localhost:${PORT}/api/answer-sheet/generate`);
 });

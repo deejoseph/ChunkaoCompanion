@@ -1600,10 +1600,34 @@ function DataImport() {
                                             )}
                                         </div>
 
-                                        {/* 参考答案 */}
+                                        {/* 参考答案 - 带编辑按钮 */}
                                         <div style={{ background: '#fff7e6', padding: '10px', borderRadius: '6px' }}>
-                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#fa8c16' }}>
-                                                📖 参考答案
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#fa8c16', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span>📖 参考答案</span>
+                                                <button
+                                                    onClick={() => {
+                                                        const currentAnswers = q.sourceAnswer || '';
+                                                        const newAnswer = window.prompt(
+                                                            '请用【空格】分隔每个答案\n\n示例：虽与日月争光可也 纵一苇之所如 赤壁赋 万里悲秋常作客 百年多病独登台\n\n注意：答案内部请不要包含空格\n\n当前答案：',
+                                                            currentAnswers
+                                                        );
+                                                        if (newAnswer !== null && newAnswer.trim()) {
+                                                            updateQuestion(q.id, 'sourceAnswer', newAnswer.trim());
+                                                            alert('答案已修正，请点击「保存到答案库」更新数据库');
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        padding: '2px 8px',
+                                                        background: '#fa8c16',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '11px'
+                                                    }}
+                                                >
+                                                    ✏️ 修正
+                                                </button>
                                             </div>
                                             <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
                                                 {q.sourceAnswer || '暂无'}
