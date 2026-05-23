@@ -57,7 +57,7 @@ function AIAssistant() {
     const [textOcrSavedFile, setTextOcrSavedFile] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     
-    // 在 AIAssistant.jsx 顶部添加
+    // 学科相关状态
     const [currentSubject, setCurrentSubject] = useState(() => {
         return localStorage.getItem('ai_subject') || 'math';
     });
@@ -72,7 +72,6 @@ function AIAssistant() {
                 console.error('解析学科模型配置失败', e);
             }
         }
-        // 默认配置
         return {
             math: 'qwen2-math:7b',
             chinese: 'qwen2.5:14b',
@@ -80,10 +79,16 @@ function AIAssistant() {
         };
     });
     
+    // 超级AI相关状态
+    const [useSuperAI, setUseSuperAI] = useState(false);
+    const [superAIStatus, setSuperAIStatus] = useState('checking');
+    const [superAIEnabled, setSuperAIEnabled] = useState(() => {
+        return localStorage.getItem('super_ai_enabled') === 'true';
+    });
+    
     // 获取当前学科对应的模型
     const currentModel = subjectModels[currentSubject] || 'qwen2.5:14b';
     
-    // 直接从 subjectModels 和 currentSubject 实时计算，确保显示正确
     const currentModelLabel = (() => {
         const modelValue = subjectModels[currentSubject];
         const subject = currentSubject;
@@ -116,6 +121,21 @@ function AIAssistant() {
         return modelValue;
     })();
     
+    // 检查超级AI状态
+    useEffect(() => {
+        const checkSuperAI = async () => {
+            try {
+                const response = await axios.get(`${API_BASE}/api/ai/super-ai-status`);
+                setSuperAIStatus(response.data.running ? 'online' : 'offline');
+            } catch (e) {
+                setSuperAIStatus('offline');
+            }
+        };
+        checkSuperAI();
+        const interval = setInterval(checkSuperAI, 30000);
+        return () => clearInterval(interval);
+    }, []);
+    
     // 初始化时从 localStorage 加载配置
     useEffect(() => {
         const saved = localStorage.getItem('subject_models');
@@ -127,17 +147,17 @@ function AIAssistant() {
                 console.error('解析失败', e);
             }
         }
+        const superEnabled = localStorage.getItem('super_ai_enabled') === 'true';
+        setSuperAIEnabled(superEnabled);
     }, []);
     
-    // 监听学科模型配置变更 - 确保没有清空 question
+    // 监听学科模型配置变更
     useEffect(() => {
         const handleModelsChange = (event) => {
             const newModels = event.detail;
             if (newModels) {
                 console.log('模型配置变更:', newModels);
                 setSubjectModels(newModels);
-                // 不要清空 question！
-                // setQuestion('');  ← 确保没有这行
                 setModelInfo(`模型配置已更新，${currentSubject === 'math' ? '数学' : currentSubject === 'chinese' ? '语文' : '英语'}模型已切换`);
                 setTimeout(() => setModelInfo(''), 3000);
             }
@@ -147,19 +167,21 @@ function AIAssistant() {
         return () => window.removeEventListener('modelsChanged', handleModelsChange);
     }, [currentSubject]);
     
-    // 监听 localStorage 变化 - 确保没有清空 question
+    // 监听 localStorage 变化
     useEffect(() => {
         const handleStorageChange = (e) => {
             if (e.key === 'subject_models' && e.newValue) {
                 try {
                     const newModels = JSON.parse(e.newValue);
                     setSubjectModels(newModels);
-                    // 不要清空 question！
                     setModelInfo(`模型配置已更新，${currentSubject === 'math' ? '数学' : currentSubject === 'chinese' ? '语文' : '英语'}模型已切换`);
                     setTimeout(() => setModelInfo(''), 3000);
                 } catch (e) {
                     console.error('解析失败', e);
                 }
+            }
+            if (e.key === 'super_ai_enabled') {
+                setSuperAIEnabled(e.newValue === 'true');
             }
         };
 
@@ -316,7 +338,6 @@ function AIAssistant() {
         setShowTextOcrModal(false);
     };
 
-    // 要求模型输出 Markdown 格式
     const getSubjectPrompt = () => {
         const prompts = {
             math: `你是一位成绩很好的数学课代表同学。请用你自己的话解释这道题的解题思路，然后给出答案。
@@ -359,7 +380,6 @@ function AIAssistant() {
         return prompts[currentSubject] || prompts.math;
     };
 
-    // 修改 askAI 函数 - 切换模型时保留之前的回答
     const askAI = async () => {
         if (!question.trim()) {
             alert('请输入你的问题。');
@@ -367,24 +387,20 @@ function AIAssistant() {
         }
 
         setLoading(true);
-        // 不清空之前的回答，让用户可以对比
-        // setAnswer('');  // 确保这行是注释掉的
-
-        // 显示正在思考的提示
-        setModelInfo('AI 思考中...');
+        setModelInfo(useSuperAI && superAIStatus === 'online' ? '🧠 超级AI思考中（35B模型，可能需要30-60秒）...' : 'AI 思考中...');
 
         const subjectPrompt = getSubjectPrompt();
         const fullQuestion = `${subjectPrompt}\n\n${question}`;
 
         try {
-            // 使用 fetch 进行流式请求
             const response = await fetch(`${API_BASE}/api/ai/ask/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     subject: currentSubject,
                     question: fullQuestion,
-                    model: currentModel
+                    model: useSuperAI && superAIStatus === 'online' ? 'super-ai' : currentModel,
+                    useSuperAI: useSuperAI && superAIStatus === 'online'
                 })
             });
 
@@ -392,11 +408,7 @@ function AIAssistant() {
             const decoder = new TextDecoder();
             let fullAnswer = '';
 
-            // 注意：这里不清空之前的回答，新回答会累加？不对，应该用新回答替换
-            // 正确做法：开始新问题时要清空，但切换模型时不应清空
-            // 这里简化处理：每次新问题都清空（这是正常行为）
-            // 切换模型时不清空是通过不调用 askAI 实现的
-            setAnswer('');  // 新问题应该清空，这是合理的
+            setAnswer('');
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -418,7 +430,7 @@ function AIAssistant() {
                                 setAnswer(fullAnswer);
                             }
                             if (data.done) {
-                                setModelInfo(`使用模型: ${currentModelLabel}`);
+                                setModelInfo(useSuperAI && superAIStatus === 'online' ? `使用模型: 🧠 超级AI（35B）` : `使用模型: ${currentModelLabel}`);
                             }
                         } catch (e) {
                             // 忽略解析错误
@@ -496,6 +508,49 @@ function AIAssistant() {
                 <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>
                     💡 提示：可在顶部 ⚙️ 系统设置中为每个学科单独配置模型
                 </div>
+            </div>
+
+            {/* 🔥 超级AI快捷入口 */}
+            <div style={{
+                background: 'linear-gradient(135deg, #f0f7ff 0%, #e6f7ff 100%)',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                marginBottom: '15px',
+                border: '1px solid #b7eb8f',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px'
+            }}>
+                <div>
+                    <span style={{ fontSize: '18px', marginRight: '8px' }}>🧠</span>
+                    <strong style={{ fontSize: '15px' }}>遇到难题？试试超级AI</strong>
+                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                        35B大模型，适合复杂题目、压轴题和数学难题
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#ff9800', marginTop: '6px' }}>
+                        ⚡ 需要先运行 ollama.bat 启动超级AI服务
+                    </div>
+                </div>
+                <button
+                    onClick={() => window.open('http://127.0.0.1:8080', '_blank')}
+                    style={{
+                        padding: '8px 20px',
+                        background: '#52c41a',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}
+                >
+                    🚀 打开超级AI
+                </button>
             </div>
 
             {modelInfo && (
@@ -850,7 +905,7 @@ function AIAssistant() {
                         cursor: (loading || !question.trim() || uploading || textOcrUploading) ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    {loading ? 'AI 思考中...' : `向 ${subjects.find(s => s.value === currentSubject)?.label} AI 提问`}
+                    {loading ? (useSuperAI && superAIStatus === 'online' ? '🧠 超级AI思考中...' : 'AI 思考中...') : `向 ${subjects.find(s => s.value === currentSubject)?.label} AI 提问`}
                 </button>
             </div>
 
@@ -864,7 +919,7 @@ function AIAssistant() {
                     overflow: 'auto',
                     textAlign: 'left'
                 }}>
-                    {/* 🔥 新增：模型昵称显示 */}
+                    {/* 模型昵称显示 */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -882,10 +937,10 @@ function AIAssistant() {
                             fontWeight: 'bold',
                             color: '#1890ff'
                         }}>
-                            🧑‍🎓 {getModelNickname(currentSubject, currentModel)}
+                            {useSuperAI && superAIStatus === 'online' ? '🧠 超级AI' : `🧑‍🎓 ${getModelNickname(currentSubject, currentModel)}`}
                         </span>
                         <span style={{ fontSize: '11px', color: '#999' }}>
-                            ({currentModelLabel.split('：')[0] || currentModel})
+                            {useSuperAI && superAIStatus === 'online' ? '(Qwen3.6-35B)' : (currentModelLabel.split('：')[0] || currentModel)}
                         </span>
                         <span style={{
                             fontSize: '11px',
@@ -1057,7 +1112,6 @@ function AIAssistant() {
                                     background: '#f0f0f0',
                                     border: 'none',
                                     borderRadius: '4px',
-                                    cursor: 'pointer'
                                 }}
                             >
                                 稍后处理

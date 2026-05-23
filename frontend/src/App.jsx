@@ -23,6 +23,11 @@ function App() {
   const [deleteOriginal, setDeleteOriginal] = useState(false);
   const [settingsTab, setSettingsTab] = useState('general');
   
+  // 超级AI开关状态
+  const [superAIEnabled, setSuperAIEnabled] = useState(() => {
+    return localStorage.getItem('super_ai_enabled') === 'true';
+  });
+  
   // 添加头像状态
   const [userAvatar, setUserAvatar] = useState(null);
   
@@ -43,6 +48,13 @@ function App() {
     window.addEventListener('storage', loadAvatar);
     return () => window.removeEventListener('storage', loadAvatar);
   }, []);
+
+  // 保存超级AI配置
+  const handleSaveSuperAI = () => {
+    localStorage.setItem('super_ai_enabled', superAIEnabled);
+    // 触发事件通知其他组件
+    window.dispatchEvent(new CustomEvent('superAIChanged', { detail: superAIEnabled }));
+  };
 
   // ========== 学科模型配置（核心） ==========
   const SUBJECT_MODELS_CONFIG = {
@@ -440,6 +452,36 @@ function App() {
                             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
                             <input type="date" defaultValue={localStorage.getItem('exam_date') || '2027-01-09'} onChange={(e) => localStorage.setItem('exam_date', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
                         </div>
+
+                        {/* 🔥 超级AI入口 */}
+                        <div style={{ marginBottom: '20px', padding: '16px', background: '#f0f7ff', borderRadius: '8px', border: '1px solid #91d5ff' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                                <div>
+                                    <strong>🧠 超级AI（35B本地模型）</strong>
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                        适合难题，响应慢但效果好，需要 8GB+ 显存
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: '#ff9800', marginTop: '8px', padding: '6px', background: '#fff7e6', borderRadius: '6px' }}>
+                                        💡 提示：请先运行 ollama.bat 启动服务
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => window.open('http://127.0.0.1:8080', '_blank')}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: '#52c41a',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    🚀 打开超级AI
+                                </button>
+                            </div>
+                        </div>
                     </>
                 )}
 
@@ -544,7 +586,7 @@ function App() {
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
                     <button onClick={() => setShowSettingsModal(false)} style={{ padding: '8px 20px', background: '#f0f0f0', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>关闭</button>
                     {settingsTab !== 'nickname' && (
-                        <button onClick={() => { saveApiConfig(); handleSaveModels(); }} style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>保存配置</button>
+                        <button onClick={() => { saveApiConfig(); handleSaveModels(); handleSaveSuperAI(); }} style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>保存配置</button>
                     )}
                 </div>
             </div>

@@ -56,7 +56,6 @@ async function askModel(model, question, options = {}) {
         });
 
         let answer = String(response.data.response || '');
-        // 清理答案
         answer = cleanAnswer(answer);
         return answer;
     } catch (error) {
@@ -104,7 +103,6 @@ router.post('/validate', async (req, res) => {
         for (const model of targetModels) {
             console.log(`Validating with model: ${model}`);
             const rawAnswer = await askModel(model, question, { subject, questionType, instruction });
-            // 二次清理（确保清理干净）
             const cleanedAnswer = cleanAnswer(rawAnswer);
             answers[model] = cleanedAnswer;
             console.log(`  ${model}: ${cleanedAnswer}`);
@@ -125,7 +123,7 @@ router.post('/validate', async (req, res) => {
     }
 });
 
-// ========== AI 助教问答接口（流式输出） ==========
+// ========== AI 助教问答接口（非流式） ==========
 router.post('/ask', async (req, res) => {
     const { subject, question, model } = req.body;
 
@@ -134,11 +132,9 @@ router.post('/ask', async (req, res) => {
     }
 
     const modelName = model || 'qwen2.5:14b';
-    const subjectName = subject === 'math' ? '数学' : subject === 'chinese' ? '语文' : '英语';
 
     try {
-        // 先尝试 chat 接口（流式），如果不支持则回退到 generate
-        const response = await axios.post('http://localhost:11434/api/generate', {
+        const response = await axios.post(OLLAMA_URL, {
             model: modelName,
             prompt: question,
             stream: false,
@@ -148,7 +144,7 @@ router.post('/ask', async (req, res) => {
             }
         });
 
-        let answer = response.data.response || '';
+        const answer = response.data.response || '';
 
         res.json({
             success: true,
@@ -180,7 +176,7 @@ router.post('/ask/stream', async (req, res) => {
     try {
         const response = await axios({
             method: 'POST',
-            url: 'http://localhost:11434/api/generate',
+            url: OLLAMA_URL,
             data: {
                 model: modelName,
                 prompt: question,
