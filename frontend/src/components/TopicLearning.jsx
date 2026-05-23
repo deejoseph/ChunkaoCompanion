@@ -237,6 +237,28 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                             </div>
                         </div>
 
+                        {/* 打印答题卡按钮 */}
+                        <button
+                            onClick={() => {
+                                const url = `http://localhost:3001/api/answer-sheet/generate?subject=${subject}&title=${encodeURIComponent(topic.name)}`;
+                                window.open(url, '_blank');
+                            }}
+                            style={{
+                                padding: '8px 20px',
+                                background: '#1890ff',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                marginRight: '10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            🖨️ 打印答题卡
+                        </button>
+
                         {/* 上传答题卡按钮 */}
                         <button
                             onClick={() => setShowOcrUpload(!showOcrUpload)}
@@ -247,7 +269,7 @@ function TopicLearning({ topic, subject, version, onClose, onRefreshProgress, on
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: 'pointer',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '6px'
                             }}

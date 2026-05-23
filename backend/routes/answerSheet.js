@@ -36,7 +36,6 @@ function escapeHtml(text) {
 // 从 source_answer 解析答案列表（严格按空格拆分）
 function parseAnswers(sourceAnswer) {
     if (!sourceAnswer) return [];
-    // 严格按空格分割，保留原有格式
     const parts = sourceAnswer.trim().split(/\s+/);
     return parts.filter(a => a.length > 0);
 }
@@ -44,17 +43,28 @@ function parseAnswers(sourceAnswer) {
 // 生成填空题的空格区域
 function generateFillBlanks(answers) {
     if (!answers || answers.length === 0) {
-        return '<div class="fill-blank-item"><div class="blank-line"></div></div>';
+        return '<div class="fill-blank-item"><div class="blank-line" style="width: 180px;"></div></div>';
     }
     
     let html = '<div class="fill-blanks-container">';
+    
+    // 根据答案数量动态调整空格宽度
+    // 答案越少，空格越宽
+    let blankWidth = 180;  // 基础宽度
+    if (answers.length >= 5) {
+        blankWidth = 140;
+    } else if (answers.length >= 3) {
+        blankWidth = 160;
+    } else {
+        blankWidth = 200;
+    }
     
     for (let i = 0; i < answers.length; i++) {
         const blankNumber = answers.length > 1 ? `(${i + 1})` : '';
         html += `
             <div class="fill-blank-item">
-                ${blankNumber ? `<div class="blank-number">${blankNumber}</div>` : ''}
-                <div class="blank-line"></div>
+                ${blankNumber ? `<span class="blank-number">${blankNumber}</span>` : ''}
+                <span class="blank-line" style="width: ${blankWidth}px;"></span>
             </div>
         `;
     }
@@ -77,7 +87,7 @@ function generateChoiceOptions(questionNumber) {
 async function generateAnswerSheet(bankId, res) {
     try {
         if (!bankId) {
-            return res.status(400).send('缺少 bankId 参数\n\n使用方式: ?bankId=你的题库ID');
+            return res.status(400).send('缺少 bankId 参数');
         }
         
         console.log('生成答题卡, bankId:', bankId);
@@ -104,96 +114,113 @@ async function generateAnswerSheet(bankId, res) {
     <meta charset="UTF-8">
     <title>${escapeHtml(bankTitle)} - 答题卡</title>
     <style>
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif; 
-            padding: 20px; 
-            max-width: 800px; 
-            margin: 0 auto; 
+            padding: 8px; 
+            max-width: 100%;
             background: white;
+            font-size: 12px;
         }
-        h1 { text-align: center; color: #1890ff; margin-bottom: 5px; font-size: 20px; }
-        .subtitle { text-align: center; color: #666; margin-bottom: 20px; font-size: 13px; }
+        h1 { text-align: center; color: #1890ff; margin: 5px 0; font-size: 16px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 8px; font-size: 10px; }
         .info-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 30px;
-            padding: 10px 0;
+            margin-bottom: 12px;
+            padding: 5px 0;
             border-bottom: 1px solid #ddd;
         }
         .info-item {
-            font-size: 14px;
+            font-size: 11px;
         }
         .info-line {
             display: inline-block;
-            min-width: 150px;
+            min-width: 100px;
             border-bottom: 1px solid #333;
-            margin-left: 8px;
+            margin-left: 6px;
         }
         .question-table {
             width: 100%;
             border-collapse: collapse;
         }
         .question-table th, .question-table td {
-            padding: 15px 10px;
-            border-bottom: 1px solid #eee;
+            padding: 5px 4px;
+            border: none;
             vertical-align: top;
+        }
+        .question-table th:first-child {
+            width: 35px;
+            text-align: center;
+        }
+        .question-table th:last-child {
+            text-align: left;
+        }
+        .question-table td:first-child {
+            width: 35px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .question-table td:last-child {
+            text-align: left;
         }
         .question-table th {
             background: #f5f5f5;
             font-weight: bold;
             color: #333;
-            width: 70px;
-            text-align: center;
+            font-size: 11px;
         }
         .fill-blanks-container {
             display: flex;
-            flex-direction: column;
-            gap: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
         }
         .fill-blank-item {
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 3px;
         }
         .blank-number {
-            font-size: 12px;
+            font-size: 10px;
             color: #999;
-            min-width: 35px;
+            min-width: 16px;
         }
         .blank-line {
-            flex: 1;
             border-bottom: 1px solid #333;
-            height: 30px;
+            height: 22px;
+            display: inline-block;
+            min-width: 150px;
         }
         .choice-options {
             display: flex;
-            gap: 25px;
-            margin-top: 5px;
+            gap: 12px;
+            margin-top: 2px;
             flex-wrap: wrap;
         }
         .choice-option {
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 14px;
+            gap: 3px;
+            font-size: 12px;
         }
         .type-badge {
-            font-size: 11px;
+            font-size: 9px;
             color: #999;
-            margin-left: 8px;
+            display: block;
+            line-height: 1.2;
         }
         .print-btn { 
             position: fixed; 
-            bottom: 20px; 
-            right: 20px; 
-            padding: 10px 20px; 
+            bottom: 10px; 
+            right: 10px; 
+            padding: 6px 12px; 
             background: #1890ff; 
             color: white; 
             border: none; 
             border-radius: 4px; 
             cursor: pointer; 
-            font-size: 14px;
+            font-size: 12px;
             z-index: 100;
         }
         @media print { 
@@ -201,12 +228,12 @@ async function generateAnswerSheet(bankId, res) {
             body { padding: 0; margin: 0; }
         }
         .footer {
-            margin-top: 40px;
+            margin-top: 15px;
             text-align: center;
-            font-size: 12px;
+            font-size: 9px;
             color: #999;
             border-top: 1px solid #eee;
-            padding-top: 20px;
+            padding-top: 8px;
         }
     </style>
 </head>
@@ -234,21 +261,30 @@ async function generateAnswerSheet(bankId, res) {
             if (q.type === 'choice') {
                 html += `
             <tr>
-                <td style="text-align: center; vertical-align: middle;">${qNumber}<span class="type-badge">【选择题】</span></td>
+                <td style="text-align: center; vertical-align: middle;">
+                    ${qNumber}
+                    <div class="type-badge">选择</div>
+                </td>
                 <td>
-                    ${generateChoiceOptions(qNumber)}
-                    <div style="font-size: 12px; color: #999; margin-top: 8px;">💡 请在对应选项前打 √</div>
+                    <div class="choice-options">
+                        <label class="choice-option"><input type="radio" name="q${qNumber}" value="A"> A</label>
+                        <label class="choice-option"><input type="radio" name="q${qNumber}" value="B"> B</label>
+                        <label class="choice-option"><input type="radio" name="q${qNumber}" value="C"> C</label>
+                        <label class="choice-option"><input type="radio" name="q${qNumber}" value="D"> D</label>
+                    </div>
                 </td>
             </tr>
 `;
             } else {
-                // 填空题：直接从 source_answer 按空格拆分得到答案数量
                 const answers = parseAnswers(q.source_answer);
                 const blanksHtml = generateFillBlanks(answers);
                 
                 html += `
             <tr>
-                <td style="text-align: center; vertical-align: middle;">${qNumber}<span class="type-badge">【填空题】</span></td>
+                <td style="text-align: center; vertical-align: middle;">
+                    ${qNumber}
+                    <div class="type-badge">填空</div>
+                </td>
                 <td>${blanksHtml}</td>
             </tr>
 `;
@@ -274,6 +310,56 @@ async function generateAnswerSheet(bankId, res) {
         res.status(500).send('生成失败: ' + error.message);
     }
 }
+
+// ========== 路由：生成答题卡（支持通过 subject + title 查找） ==========
+router.get('/generate', async (req, res) => {
+    const bankId = req.query.bankId;
+    const subject = req.query.subject;
+    const title = req.query.title;
+    
+    let targetBankId = bankId;
+    
+    // 如果没有直接提供 bankId，通过 subject 和 title 查找
+    if (!targetBankId && subject && title) {
+        try {
+            let cleanTitle = title;
+            cleanTitle = cleanTitle.replace(/（教师版）/, '');
+            cleanTitle = cleanTitle.replace(/（学生版）/, '');
+            cleanTitle = cleanTitle.replace(/（复习讲义）/, '');
+            cleanTitle = cleanTitle.replace(/（上海专用）/, '');
+            cleanTitle = cleanTitle.trim();
+            
+            console.log('查找题库: subject=', subject, 'title=', cleanTitle);
+            
+            const bank = await db.get(
+                `SELECT id FROM question_banks 
+                 WHERE subject_id = ? AND title LIKE ? 
+                 LIMIT 1`,
+                [subject, `%${cleanTitle}%`]
+            );
+            
+            if (bank) {
+                targetBankId = bank.id;
+                console.log('找到题库:', targetBankId);
+            } else {
+                console.log('未找到匹配的题库');
+            }
+        } catch (err) {
+            console.error('查找题库失败:', err);
+        }
+    }
+    
+    if (!targetBankId) {
+        return res.status(400).send('缺少 bankId 参数，且未能通过 subject+title 找到匹配的题库\n\n请使用: ?bankId=题库ID 或 ?subject=学科&title=专题名称');
+    }
+    
+    await generateAnswerSheet(targetBankId, res);
+});
+
+router.post('/generate', async (req, res) => {
+    const bankId = req.body.bankId;
+    await generateAnswerSheet(bankId, res);
+});
 
 // 答题卡识别与评分
 router.post('/scan', upload.single('image'), async (req, res) => {
@@ -315,11 +401,9 @@ router.post('/scan', upload.single('image'), async (req, res) => {
             let isCorrect = false;
             
             if (q.source_answer && q.source_answer.trim()) {
-                // 将标准答案按空格分割，检查每个答案是否在 OCR 文本中
                 const correctAnswers = q.source_answer.trim().split(/\s+/);
                 let allFound = true;
                 for (const ans of correctAnswers) {
-                    // 清理答案中的标点符号后再匹配
                     const cleanAns = ans.replace(/[《》·,，、。！？；：""''（）【】]/g, '');
                     if (cleanAns && !ocrText.includes(cleanAns)) {
                         allFound = false;
@@ -366,16 +450,6 @@ router.post('/scan', upload.single('image'), async (req, res) => {
         }
         res.status(500).json({ success: false, error: error.message });
     }
-});
-
-router.get('/generate', async (req, res) => {
-    const bankId = req.query.bankId;
-    await generateAnswerSheet(bankId, res);
-});
-
-router.post('/generate', async (req, res) => {
-    const bankId = req.body.bankId;
-    await generateAnswerSheet(bankId, res);
 });
 
 module.exports = router;

@@ -336,23 +336,4 @@ async function askAI(subject, prompt, options = {}) {
     }
 }
 
-const { isSuperAIRunning, askSuperAI } = require('./superAI');
-
-async function askAI(subject, question, options = {}) {
-    const { useSuperAI, onStream } = options;
-    
-    // 如果启用超级AI且服务运行
-    if (useSuperAI) {
-        const isRunning = await isSuperAIRunning();
-        if (isRunning) {
-            console.log('使用超级AI模型');
-            return await askSuperAI(question, onStream);
-        } else {
-            console.log('超级AI未启动，降级到普通模型');
-        }
-    }
-    
-    // 普通模型逻辑...
-}
-
 module.exports = { askAI, MODEL_CONFIGS, formatMathOutput, getUserModelPreference };

@@ -122,4 +122,57 @@ function AnswerSheetScanner({ bankId, onComplete }) {
     );
 }
 
+router.get('/generate', async (req, res) => {
+    const bankId = req.query.bankId;
+    const subject = req.query.subject;
+    const title = req.query.title;
+    
+    let targetBankId = bankId;
+    
+    // 如果没有直接提供 bankId，通过 subject 和 title 查找
+    if (!targetBankId && subject && title) {
+        try {
+            const sqlite3 = require('sqlite3').verbose();
+            const { open } = require('sqlite');
+            const path = require('path');
+            
+            const db = await open({
+                filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+                driver: sqlite3.Database
+            });
+            
+            // 清理标题
+            let cleanTitle = title;
+            cleanTitle = cleanTitle.replace(/（教师版）/, '');
+            cleanTitle = cleanTitle.replace(/（学生版）/, '');
+            cleanTitle = cleanTitle.replace(/（复习讲义）/, '');
+            cleanTitle = cleanTitle.replace(/（上海专用）/, '');
+            cleanTitle = cleanTitle.trim();
+            
+            // 查找匹配的题库
+            const bank = await db.get(
+                `SELECT id FROM question_banks 
+                 WHERE subject_id = ? AND (title LIKE ? OR title LIKE ?)
+                 LIMIT 1`,
+                [subject, `%${cleanTitle}%`, `%${title}%`]
+            );
+            
+            if (bank) {
+                targetBankId = bank.id;
+                console.log('找到题库:', targetBankId);
+            }
+            
+            await db.close();
+        } catch (err) {
+            console.error('查找题库失败:', err);
+        }
+    }
+    
+    if (!targetBankId) {
+        return res.status(400).send('缺少 bankId 参数，且未能通过 subject+title 找到匹配的题库\n\n请使用: ?bankId=题库ID 或 ?subject=学科&title=专题名称');
+    }
+    
+    await generateAnswerSheet(targetBankId, res);
+});
+
 export default AnswerSheetScanner;
