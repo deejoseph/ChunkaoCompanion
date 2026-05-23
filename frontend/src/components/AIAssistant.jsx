@@ -79,13 +79,6 @@ function AIAssistant() {
         };
     });
     
-    // 超级AI相关状态
-    const [useSuperAI, setUseSuperAI] = useState(false);
-    const [superAIStatus, setSuperAIStatus] = useState('checking');
-    const [superAIEnabled, setSuperAIEnabled] = useState(() => {
-        return localStorage.getItem('super_ai_enabled') === 'true';
-    });
-    
     // 获取当前学科对应的模型
     const currentModel = subjectModels[currentSubject] || 'qwen2.5:14b';
     
@@ -119,23 +112,8 @@ function AIAssistant() {
         }
 
         return modelValue;
-    })();
-    
-    // 检查超级AI状态
-    useEffect(() => {
-        const checkSuperAI = async () => {
-            try {
-                const response = await axios.get(`${API_BASE}/api/ai/super-ai-status`);
-                setSuperAIStatus(response.data.running ? 'online' : 'offline');
-            } catch (e) {
-                setSuperAIStatus('offline');
-            }
-        };
-        checkSuperAI();
-        const interval = setInterval(checkSuperAI, 30000);
-        return () => clearInterval(interval);
-    }, []);
-    
+    })();    
+
     // 初始化时从 localStorage 加载配置
     useEffect(() => {
         const saved = localStorage.getItem('subject_models');
@@ -147,8 +125,6 @@ function AIAssistant() {
                 console.error('解析失败', e);
             }
         }
-        const superEnabled = localStorage.getItem('super_ai_enabled') === 'true';
-        setSuperAIEnabled(superEnabled);
     }, []);
     
     // 监听学科模型配置变更
@@ -179,9 +155,6 @@ function AIAssistant() {
                 } catch (e) {
                     console.error('解析失败', e);
                 }
-            }
-            if (e.key === 'super_ai_enabled') {
-                setSuperAIEnabled(e.newValue === 'true');
             }
         };
 
@@ -387,7 +360,7 @@ function AIAssistant() {
         }
 
         setLoading(true);
-        setModelInfo(useSuperAI && superAIStatus === 'online' ? '🧠 超级AI思考中（35B模型，可能需要30-60秒）...' : 'AI 思考中...');
+        setModelInfo('AI 思考中...');
 
         const subjectPrompt = getSubjectPrompt();
         const fullQuestion = `${subjectPrompt}\n\n${question}`;
@@ -399,8 +372,7 @@ function AIAssistant() {
                 body: JSON.stringify({
                     subject: currentSubject,
                     question: fullQuestion,
-                    model: useSuperAI && superAIStatus === 'online' ? 'super-ai' : currentModel,
-                    useSuperAI: useSuperAI && superAIStatus === 'online'
+                    model: currentModel
                 })
             });
 
@@ -430,7 +402,7 @@ function AIAssistant() {
                                 setAnswer(fullAnswer);
                             }
                             if (data.done) {
-                                setModelInfo(useSuperAI && superAIStatus === 'online' ? `使用模型: 🧠 超级AI（35B）` : `使用模型: ${currentModelLabel}`);
+                                setModelInfo(`使用模型: ${currentModelLabel}`);
                             }
                         } catch (e) {
                             // 忽略解析错误
@@ -905,7 +877,7 @@ function AIAssistant() {
                         cursor: (loading || !question.trim() || uploading || textOcrUploading) ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    {loading ? (useSuperAI && superAIStatus === 'online' ? '🧠 超级AI思考中...' : 'AI 思考中...') : `向 ${subjects.find(s => s.value === currentSubject)?.label} AI 提问`}
+                    {loading ? 'AI 思考中...' : `向 ${subjects.find(s => s.value === currentSubject)?.label} AI 提问`}
                 </button>
             </div>
 
@@ -937,10 +909,10 @@ function AIAssistant() {
                             fontWeight: 'bold',
                             color: '#1890ff'
                         }}>
-                            {useSuperAI && superAIStatus === 'online' ? '🧠 超级AI' : `🧑‍🎓 ${getModelNickname(currentSubject, currentModel)}`}
+                            🧑‍🎓 {getModelNickname(currentSubject, currentModel)}
                         </span>
                         <span style={{ fontSize: '11px', color: '#999' }}>
-                            {useSuperAI && superAIStatus === 'online' ? '(Qwen3.6-35B)' : (currentModelLabel.split('：')[0] || currentModel)}
+                            ({currentModelLabel.split('：')[0] || currentModel})
                         </span>
                         <span style={{
                             fontSize: '11px',
