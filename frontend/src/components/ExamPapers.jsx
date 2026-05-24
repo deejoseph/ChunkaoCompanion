@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 
+const API_BASE = 'http://localhost:3001';  // 新增
+
 function ExamPapers() {
     const [selectedSubject, setSelectedSubject] = useState('chinese');
     const [selectedYear, setSelectedYear] = useState('2026');
@@ -36,8 +38,8 @@ function ExamPapers() {
         setLoading(true);
         try {
             const [examRes, mockRes] = await Promise.all([
-                axios.get(`http://localhost:3001/api/exams/papers/${selectedSubject}/${selectedYear}`),
-                axios.get(`http://localhost:3001/api/exams/mock/${selectedSubject}/${selectedYear}`)
+                axios.get(`${API_BASE}/api/exams/papers/${selectedSubject}/${selectedYear}`),
+                axios.get(`${API_BASE}/api/exams/mock/${selectedSubject}/${selectedYear}`)
             ]);
 
             let allPapers = [];
@@ -58,15 +60,17 @@ function ExamPapers() {
     };
     
     const checkListening = async () => {
+        console.log('checkListening 被调用, 年份:', selectedYear);
         try {
-            const response = await axios.get(`http://localhost:3001/api/exams/listening/check/${selectedYear}`);
-            if (response.data.hasListening) {
+            const response = await axios.get(`${API_BASE}/api/exams/listening/check/${selectedYear}`);
+            if (response.data.hasListening && response.data.audioUrl) {
                 setHasListening(true);
-                setListeningAudioUrl(response.data.audioUrl);
+                setListeningAudioUrl(`${API_BASE}${response.data.audioUrl}`);
             } else {
                 setHasListening(false);
             }
         } catch (error) {
+            console.error('听力检测失败:', error);
             setHasListening(false);
         }
     };
@@ -76,9 +80,9 @@ function ExamPapers() {
         const encodedFilename = encodeURIComponent(paper.filename);
         let url;
         if (paper.type === 'exam') {
-            url = `http://localhost:3001/api/exams/pdf/${selectedSubject}/${selectedYear}/exam/${encodedFilename}`;
+            url = `${API_BASE}/api/exams/pdf/${selectedSubject}/${selectedYear}/exam/${encodedFilename}`;
         } else {
-            url = `http://localhost:3001/api/exams/pdf/${selectedSubject}/${selectedYear}/mock/${encodedFilename}`;
+            url = `${API_BASE}/api/exams/pdf/${selectedSubject}/${selectedYear}/mock/${encodedFilename}`;
         }
         setPaperUrl(url);
     };
@@ -321,6 +325,7 @@ function ExamPapers() {
                                 padding: '15px 20px',
                                 borderRadius: '8px',
                                 marginBottom: '20px',
+                                border: '1px solid #91d5ff',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '15px',
