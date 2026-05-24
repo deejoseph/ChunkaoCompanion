@@ -1,22 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import VoiceRecorder from '../../VoiceRecorder';
-import Part1Panel from './Part1Panel';
-import Part2Panel from './Part2Panel';
-import Part3Panel from './Part3Panel';
-import { getRandomPart1Question, getRandomPart2Topic, getPart3Questions } from './topics';
+import AudioDebugger from '../../AudioDebugger';
 import AIReference from '../../shared/AIReference';
 
 const API_BASE = 'http://localhost:3001';
 
 function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
-    // ========== 状态（与通用口语完全一致） ==========
+    // 状态
     const [showAIReference, setShowAIReference] = useState(false);
     const [aiResponse, setAiResponse] = useState('');
     const [loading, setLoading] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
+    const [selectedTopic, setSelectedTopic] = useState(null);
     const [audioUrl, setAudioUrl] = useState(null);
     const [sentences, setSentences] = useState([]);
     const [currentInterim, setCurrentInterim] = useState('');
@@ -27,27 +25,31 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const [transcribing, setTranscribing] = useState(false);
     const [recognitionStatus, setRecognitionStatus] = useState('');
     const [lastTranscribeTime, setLastTranscribeTime] = useState(null);
-    const [currentPart, setCurrentPart] = useState(1);
-    const [part1Question, setPart1Question] = useState(null);
-    const [part2Topic, setPart2Topic] = useState(null);
-    const [part3Data, setPart3Data] = useState(null);
-    const [part3Index, setPart3Index] = useState(0);
-    
+    const [answerTargetSeconds, setAnswerTargetSeconds] = useState(45);
+
     // Refs
     const audioUrlRef = useRef(null);
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
     const isProcessingRef = useRef(false);
 
-    // 获取当前问题（用于 AI 参考答案）
-    const getCurrentQuestionText = () => {
-        if (currentPart === 1 && part1Question) return part1Question.question;
-        if (currentPart === 2 && part2Topic) return part2Topic.title;
-        if (currentPart === 3 && part3Data) return part3Data.questions[part3Index];
-        return '';
-    };
+    // 雅思话题库（下拉菜单用 category 区分）
+    const topics = [
+        { id: 1, question: "Do you work or are you a student?", category: "Part 1 - Work/Study" },
+        { id: 2, question: "What's your hometown like?", category: "Part 1 - Hometown" },
+        { id: 3, question: "Do you like reading books? Why/why not?", category: "Part 1 - Hobby" },
+        { id: 4, question: "How often do you use the internet?", category: "Part 1 - Technology" },
+        { id: 5, question: "Describe a person who has influenced you.", category: "Part 2 - People" },
+        { id: 6, question: "Describe a trip you remember well.", category: "Part 2 - Travel" },
+        { id: 7, question: "Describe a gift you gave to someone.", category: "Part 2 - Gift" },
+        { id: 8, question: "Do you think advertising influences people's buying habits?", category: "Part 3 - Advertising" },
+        { id: 9, question: "How has technology changed the way people communicate?", category: "Part 3 - Technology" },
+        { id: 10, question: "What are the advantages and disadvantages of living in a big city?", category: "Part 3 - City Life" },
+        { id: 11, question: "Do you think education should be free for everyone?", category: "Part 3 - Education" },
+        { id: 12, question: "What role does music play in people's lives?", category: "Part 3 - Music" }
+    ];
 
-    // ========== Whisper 识别函数（与通用口语相同） ==========
+    // Whisper 识别函数
     const transcribeWithWhisper = async (audioBlob, modelSize = 'small') => {
         if (isProcessingRef.current) {
             console.log('Whisper 识别中，跳过重复调用');
@@ -66,7 +68,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         formData.append('language', 'en');
 
         try {
-            const response = await axios.post('http://localhost:3001/api/whisper/transcribe', formData);
+            const response = await axios.post(`${API_BASE}/api/whisper/transcribe`, formData);
             if (response.data.success) {
                 setSentences([]);
                 const segments = response.data.segments || [];
@@ -97,7 +99,6 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         }
     };
 
-    // ========== 统一的音频处理（与通用口语相同） ==========
     const handleAudioBlob = (blob, audioUrl, options = {}) => {
         console.log('收到音频 Blob，保存用于回放, engine:', recognitionEngine);
 
@@ -115,25 +116,119 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         transcribeWithWhisper(blob, 'small');
     };
 
-    // ========== 快速模式的实时识别回调 ==========
+    const speakText = (text) => {
+        if (!window.speechSynthesis) {
+            console.warn('浏览器不支持语音合成');
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        if (speakTimeoutRef.current) {
+            clearTimeout(speakTimeoutRef.current);
+        }
+
+        isSpeakingRef.current = false;
+        setIsSpeaking(false);
+
+        speakTimeoutRef.current = setTimeout(() => {
+            doSpeak(text);
+            speakTimeoutRef.current = null;
+        }, 50);
+    };
+
+    const doSpeak = (text) => {
+        let plainText = text;
+
+        plainText = plainText.replace(/\*\*([^*]+)\*\*/g, '$1');
+        plainText = plainText.replace(/\*([^*]+)\*/g, '$1');
+        plainText = plainText.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+        plainText = plainText.replace(/`([^`]+)`/g, '$1');
+        plainText = plainText.replace(/```[\s\S]*?```/g, '');
+        plainText = plainText.replace(/^#{1,6}\s+/gm, '');
+
+        const englishSentences = plainText.match(/[A-Z][A-Za-z\s,;:()'"!?.-]+[.!?]/g);
+
+        if (englishSentences && englishSentences.length > 0) {
+            plainText = englishSentences.join(' ');
+        } else {
+            plainText = plainText.replace(/[^A-Za-z0-9\s,.!?'-]/g, '');
+        }
+
+        plainText = plainText.replace(/\s+/g, ' ').trim();
+
+        console.log('TTS 朗读文本:', plainText);
+
+        if (!plainText) {
+            console.warn('没有可朗读的英文内容');
+            return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(plainText);
+        utterance.lang = 'en-US';
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+
+        utterance.onstart = () => {
+            console.log('TTS 开始朗读');
+            isSpeakingRef.current = true;
+            setIsSpeaking(true);
+        };
+
+        utterance.onend = () => {
+            console.log('TTS 朗读结束');
+            isSpeakingRef.current = false;
+            setIsSpeaking(false);
+            utteranceRef.current = null;
+        };
+
+        utterance.onerror = (e) => {
+            console.error('TTS 错误:', e);
+            isSpeakingRef.current = false;
+            setIsSpeaking(false);
+            utteranceRef.current = null;
+        };
+
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+    };
+
+    const stopSpeaking = () => {
+        if (window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+        }
+    };
+
+    // 快速模式：浏览器实时识别
+    const handleSentence = (sentence, isFinal) => {
+        console.log('=== handleSentence ===', sentence, isFinal);
+        if (isFinal && sentence) {
+            setSentences(prev => {
+                const newSentences = [...prev, sentence];
+                const fullText = newSentences.join(' ');
+                setFullTranscript(fullText);
+                finalTranscriptRef.current = fullText;
+                return newSentences;
+            });
+            setCurrentInterim('');
+            setRecognitionStatus('快速识别完成，可直接修改文本');
+        }
+    };
+
     const handleTranscript = (text, isFinal) => {
         if (!isFinal) {
             setCurrentInterim(text);
             setRecognitionStatus('浏览器实时识别中...');
             return;
         }
+
         if (text) {
-            setSentences(prev => [...prev, text]);
-            setFullTranscript(prev => prev + (prev ? ' ' : '') + text);
-            finalTranscriptRef.current = fullTranscript + (fullTranscript ? ' ' : '') + text;
             setRecognitionStatus('快速识别完成，可直接修改文本');
         }
     };
 
-    const handleSentence = (sentence, isFinal) => {
-        // 兼容保留
-    };
-
+    // 清空当前会话（识别结果、AI反馈等）
     const clearConversation = () => {
         setSentences([]);
         setCurrentInterim('');
@@ -142,17 +237,28 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         setRecognitionStatus('');
         setLastTranscribeTime(null);
         finalTranscriptRef.current = '';
-        if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+        }
         setAudioUrl(null);
+        stopSpeaking();
     };
 
     const handleRecordingStart = () => {
         console.log('开始录音');
         setIsRecording(true);
-        setRecognitionStatus(recognitionEngine === 'whisper' ? '录音中，松开后开始精准识别' : '录音中，浏览器实时识别');
+        // 关键修改：每次开始录音时清空之前的所有识别结果
+        setSentences([]);
+        setFullTranscript('');
         setCurrentInterim('');
-        if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        finalTranscriptRef.current = '';
+        setRecognitionStatus(recognitionEngine === 'whisper' ? '录音中，松开后开始精准识别' : '录音中，浏览器实时识别');
+        if (audioUrlRef.current) {
+            URL.revokeObjectURL(audioUrlRef.current);
+        }
         setAudioUrl(null);
+        // 同时清空之前的AI反馈（可选，避免混淆）
+        setAiResponse('');
     };
 
     const handleRecordingStop = () => {
@@ -163,60 +269,39 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         }
     };
 
-    // ========== AI 评分（基于 sentences/fullTranscript） ==========
+    useEffect(() => {
+        return () => {
+            if (audioUrlRef.current) {
+                URL.revokeObjectURL(audioUrlRef.current);
+            }
+        };
+    }, []);
+
+    // AI 分析（雅思评分）
     const analyzeWithAI = async () => {
         const currentTranscript = fullTranscript || sentences.join(' ');
         if (!currentTranscript.trim()) {
             alert('请先录音说出你的回答');
             return;
         }
+
         setLoading(true);
-        let analysisPrompt = '';
-        if (currentPart === 1 && part1Question) {
-            analysisPrompt = `你是雅思考官。请对以下 Part 1 回答进行评分：
 
-话题：${part1Question.topic}
-问题：${part1Question.question}
+        const analysisPrompt = `你是雅思考官。请严格按照以下格式评分学生回答：
+
+话题：${selectedTopic?.question || '雅思口语练习'}
 回答：${currentTranscript}
 
 输出格式（Markdown）：
 
 **评分：** 流利度 X/9 | 语法 X/9 | 词汇 X/9 | 发音 X/9
 
-**优点：** （2-3点）
-**改进：** （2-3点）
-**高分范例：** （简短范例回答）`;
-        } else if (currentPart === 2 && part2Topic) {
-            analysisPrompt = `你是雅思考官。请对以下 Part 2 个人陈述进行评分：
+**优点：** 简洁列出
+**改进：** 简洁列出
+**高分范例：** 简短范例回答
 
-话题：${part2Topic.title}
-要求：${part2Topic.prompts.join('、')}
-回答：${currentTranscript}
+**语法修正：** 如有错误，给出修正`;
 
-输出格式（Markdown）：
-
-**评分：** 流利度 X/9 | 语法 X/9 | 词汇 X/9 | 发音 X/9
-
-**优点：** （2-3点）
-**改进：** （2-3点）
-**结构评价：** （清晰的开头/主体/结尾）
-**示范回答要点：**`;
-        } else if (currentPart === 3 && part3Data) {
-            analysisPrompt = `你是雅思考官。请对以下 Part 3 抽象话题讨论进行评分：
-
-话题类别：${part3Data.category}
-问题：${part3Data.questions[part3Index]}
-回答：${currentTranscript}
-
-输出格式（Markdown）：
-
-**评分：** 流利度 X/9 | 语法 X/9 | 词汇 X/9 | 发音 X/9
-
-**优点：** （2-3点）
-**改进：** （2-3点）
-**逻辑评价：** （清晰的论点和支持细节）
-**示范回答：**`;
-        }
         try {
             const model = localStorage.getItem('english_model_fast') || 'qwen2.5:7b';
             const response = await axios.post(`${API_BASE}/api/ai/ask`, {
@@ -224,6 +309,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 question: analysisPrompt,
                 model: model
             });
+
             if (response.data.success) {
                 setAiResponse(response.data.answer);
             } else {
@@ -232,174 +318,155 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         } catch (error) {
             console.error('AI 分析失败:', error);
             setAiResponse(`请求失败: ${error.message}`);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
-    };
-
-    // ========== Part 切换与题目加载 ==========
-    useEffect(() => {
-        if (currentPart === 1 && !part1Question) {
-            setPart1Question(getRandomPart1Question());
-        }
-        if (currentPart === 2 && !part2Topic) {
-            setPart2Topic(getRandomPart2Topic());
-        }
-    }, [currentPart]);
-
-    const switchPart = (part) => {
-        setCurrentPart(part);
-        clearConversation();
-        if (part === 1 && !part1Question) setPart1Question(getRandomPart1Question());
-        if (part === 2 && !part2Topic) setPart2Topic(getRandomPart2Topic());
-        if (part === 3 && !part3Data) {
-            const data = getPart3Questions('education');
-            setPart3Data(data);
-            setPart3Index(0);
-        }
-    };
-
-    const loadNewPart1 = () => {
-        setPart1Question(getRandomPart1Question());
-        clearConversation();
-    };
-    const loadNewPart2 = () => {
-        setPart2Topic(getRandomPart2Topic());
-        clearConversation();
-    };
-    const nextPart3 = () => {
-        if (part3Data && part3Index < part3Data.questions.length - 1) {
-            setPart3Index(part3Index + 1);
-            clearConversation();
-        }
-    };
-    const prevPart3 = () => {
-        if (part3Index > 0) {
-            setPart3Index(part3Index - 1);
-            clearConversation();
-        }
-    };
-
-    // TTS 语音合成（与通用口语相同，可省略但保留以支持朗读）
-    const speakText = (text) => {
-        if (!window.speechSynthesis) return;
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text.replace(/[#*`]/g, ''));
-        utterance.lang = 'en-US';
-        utterance.rate = 0.9;
-        window.speechSynthesis.speak(utterance);
     };
 
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '20px' }}>
-            <h1>🎙️ 雅思口语专项练习</h1>
-
-            {/* 备考提示 */}
-            <div style={{
-                background: '#e6f7ff',
-                padding: '12px 16px',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                border: '1px solid #91d5ff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                flexWrap: 'wrap'
-            }}>
-                <span style={{ fontSize: '24px' }}>💡</span>
+        <div>
+            {/* 标题区域 - 与通用口语完全一致 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
-                    <strong>备考提示：</strong> 建议在手边准备便签纸，养成1分钟写草稿的习惯。
-                    详细的应试技巧可以在 <strong>🌍 国际</strong> 模块中学习加州大学的雅思准备教程。
+                    <h2 style={{ margin: 0 }}>🎙️ 雅思口语专项练习</h2>
+                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#666' }}>模拟雅思口语考试，AI考官评分反馈</p>
                 </div>
             </div>
 
-            {/* Part 切换 */}
+            {/* 练习时长选择（保留雅思特色） */}
             <div style={{
+                marginBottom: '20px',
                 display: 'flex',
                 gap: '12px',
-                marginBottom: '24px',
-                borderBottom: '1px solid #e8e8e8',
-                paddingBottom: '12px'
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                background: '#f7f9fc',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                border: '1px solid #e6edf5'
             }}>
-                <button onClick={() => switchPart(1)} style={{
-                    padding: '10px 24px',
-                    background: currentPart === 1 ? '#1890ff' : '#f0f0f0',
-                    color: currentPart === 1 ? 'white' : '#333',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                }}>📝 Part 1</button>
-                <button onClick={() => switchPart(2)} style={{
-                    padding: '10px 24px',
-                    background: currentPart === 2 ? '#52c41a' : '#f0f0f0',
-                    color: currentPart === 2 ? 'white' : '#333',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                }}>🎤 Part 2</button>
-                <button onClick={() => switchPart(3)} style={{
-                    padding: '10px 24px',
-                    background: currentPart === 3 ? '#fa8c16' : '#f0f0f0',
-                    color: currentPart === 3 ? 'white' : '#333',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                }}>💬 Part 3</button>
+                <span style={{ fontWeight: 'bold', color: '#333' }}>⏱ 回答时长</span>
+                {[30, 45, 60, 90].map(seconds => (
+                    <button
+                        key={seconds}
+                        onClick={() => setAnswerTargetSeconds(seconds)}
+                        style={{
+                            padding: '5px 12px',
+                            borderRadius: '16px',
+                            border: 'none',
+                            background: answerTargetSeconds === seconds ? '#1890ff' : '#e8e8e8',
+                            color: answerTargetSeconds === seconds ? 'white' : '#333',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {seconds}秒
+                    </button>
+                ))}
+                <span style={{ fontSize: '13px', color: '#666' }}>
+                    建议结构：直接回答 → 解释原因 → 举例 → 简短总结
+                </span>
             </div>
 
-            {/* 题目面板 + AI参考答案按钮 */}
-            {currentPart === 1 && part1Question && (
-                <>
-                    <Part1Panel question={part1Question} onNextQuestion={loadNewPart1} />
-                    <div style={{ marginBottom: '16px', textAlign: 'center' }}>
+            {/* 话题选择 - 下拉菜单 */}
+            <div style={{ marginBottom: '24px' }}>
+                <h3>📋 选择雅思话题</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <select
+                        value={selectedTopic?.id || ''}
+                        onChange={(e) => {
+                            const topicId = parseInt(e.target.value);
+                            const topic = topics.find(t => t.id === topicId);
+                            if (topic) {
+                                setSelectedTopic(topic);
+                                clearConversation();
+                            }
+                        }}
+                        style={{
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #d9d9d9',
+                            fontSize: '14px',
+                            minWidth: '220px',
+                            cursor: 'pointer',
+                            backgroundColor: 'white'
+                        }}
+                    >
+                        <option value="">-- 请选择话题 --</option>
+                        {topics.map(topic => (
+                            <option key={topic.id} value={topic.id}>
+                                {topic.category} - {topic.question.length > 40 ? topic.question.slice(0, 40) + '...' : topic.question}
+                            </option>
+                        ))}
+                    </select>
+                    {selectedTopic && (
                         <button
-                            onClick={() => setShowAIReference(true)}
-                            style={{ padding: '8px 20px', background: '#722ed1', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
+                            onClick={() => {
+                                setSelectedTopic(null);
+                                clearConversation();
+                            }}
+                            style={{
+                                padding: '6px 12px',
+                                background: '#f0f0f0',
+                                border: '1px solid #ccc',
+                                borderRadius: '20px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
                         >
-                            🤖 查看 AI 参考答案
+                            清除选择
                         </button>
+                    )}
+                </div>
+            </div>
+
+            {/* 当前话题显示 */}
+            {selectedTopic && (
+                <div style={{
+                    background: '#e6f7ff',
+                    padding: '16px 20px',
+                    borderRadius: '8px',
+                    marginBottom: '24px',
+                    border: '1px solid #91d5ff'
+                }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>🎯 当前话题</div>
+                    <div style={{ fontSize: '16px', lineHeight: '1.5', fontWeight: 'bold' }}>
+                        {selectedTopic.question}
                     </div>
-                </>
-            )}
-            {currentPart === 2 && part2Topic && (
-                <>
-                    <Part2Panel topic={part2Topic} onPreparationStart={() => {}} onSpeakingStart={() => {}} onStopSpeaking={() => {}} />
-                    <div style={{ marginBottom: '16px', textAlign: 'center' }}>
-                        <button
-                            onClick={() => setShowAIReference(true)}
-                            style={{ padding: '8px 20px', background: '#722ed1', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
-                        >
-                            🤖 查看 AI 参考答案
-                        </button>
-                    </div>
-                </>
-            )}
-            {currentPart === 3 && part3Data && (
-                <>
-                    <Part3Panel questions={part3Data.questions} currentIndex={part3Index} onNext={nextPart3} onPrev={prevPart3} />
-                    <div style={{ marginBottom: '16px', textAlign: 'center' }}>
-                        <button
-                            onClick={() => setShowAIReference(true)}
-                            style={{ padding: '8px 20px', background: '#722ed1', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '14px' }}
-                        >
-                            🤖 查看 AI 参考答案
-                        </button>
-                    </div>
-                </>
+                </div>
             )}
 
-            {/* AI 参考答案弹窗 */}
-            {showAIReference && (
-                <AIReference
-                    currentQuestion={getCurrentQuestionText()}
-                    context="ielts"
-                    onClose={() => setShowAIReference(false)}
-                />
+            {/* AI 参考答案按钮 */}
+            {selectedTopic && (
+                <div style={{ marginBottom: '16px', textAlign: 'center' }}>
+                    <button
+                        onClick={() => setShowAIReference(true)}
+                        style={{
+                            padding: '8px 20px',
+                            background: '#722ed1',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '14px'
+                        }}
+                    >
+                        🤖 查看 AI 参考答案
+                    </button>
+                </div>
             )}
 
-            {/* ========== 录音区域（与通用口语完全相同） ========== */}
+            {/* AI 参考答案 - 左对齐 */}
+            {showAIReference && selectedTopic && (
+                <div style={{ textAlign: 'left' }}>
+                    <AIReference
+                        currentQuestion={selectedTopic.question}
+                        context="ielts"
+                        onClose={() => setShowAIReference(false)}
+                    />
+                </div>
+            )}
+
+            {/* 录音区域 */}
             <div style={{
                 background: '#fafafa',
                 padding: '30px 20px',
@@ -417,8 +484,9 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                     onRecordingStop={handleRecordingStop}
                     onAudioBlob={handleAudioBlob}
                     transcribeAudio={recognitionEngine === 'whisper'}
-                    disabled={false}
+                    disabled={!selectedTopic}
                 />
+                <AudioDebugger isRecording={isRecording} />
                 {audioUrl && (
                     <div style={{ marginTop: '16px' }}>
                         <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>🎵 录音回放</div>
@@ -427,7 +495,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 )}
             </div>
 
-            {/* ========== 识别结果（与通用口语完全相同） ========== */}
+            {/* 识别结果区域 */}
             <div style={{
                 background: '#f6ffed',
                 padding: '16px',
@@ -474,13 +542,15 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                     ))
                 ) : (
                     <div style={{ fontSize: '14px', color: '#999', minHeight: '40px' }}>
-                        {currentInterim || '按住空格键开始录音...'}
+                        {currentInterim || '按住空格键开始录音，松开后自动识别'}
                     </div>
                 )}
 
                 {(fullTranscript || sentences.length > 0) && (
                     <div style={{ marginTop: '12px' }}>
-                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>可在提交前修正识别文本</div>
+                        <div style={{ fontSize: '12px', color: '#666', marginBottom: '6px' }}>
+                            可在提交前修正识别文本
+                        </div>
                         <textarea
                             value={fullTranscript}
                             onChange={(e) => {
@@ -517,7 +587,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 )}
             </div>
 
-            {/* AI 评分按钮 */}
+            {/* AI 分析按钮 */}
             {(fullTranscript || sentences.length > 0) && !loading && !transcribing && (
                 <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                     <button
@@ -533,13 +603,75 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                             fontWeight: 'bold'
                         }}
                     >
-                        🤖 AI 评分与分析
+                        🤖 AI 考官评分
                     </button>
-                    {aiResponse && (
+                    {isSpeaking && (
+                        <button
+                            onClick={() => {
+                                window.speechSynthesis.cancel();
+                                isSpeakingRef.current = false;
+                                setIsSpeaking(false);
+                                if (utteranceRef.current) {
+                                    utteranceRef.current = null;
+                                }
+                                if (speakTimeoutRef.current) {
+                                    clearTimeout(speakTimeoutRef.current);
+                                    speakTimeoutRef.current = null;
+                                }
+                            }}
+                            style={{
+                                marginLeft: '12px',
+                                padding: '10px 20px',
+                                background: '#ff4d4f',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '30px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            ⏹️ 停止朗读
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {loading && (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#1890ff' }}>
+                    🤖 雅思考官正在评分，请稍候...
+                </div>
+            )}
+
+            {transcribing && (
+                <div style={{ textAlign: 'center', padding: '16px', color: '#1890ff' }}>
+                    🎧 正在识别录音，请稍候...
+                </div>
+            )}
+
+            {/* AI 反馈展示 */}
+            {aiResponse && (
+                <div style={{
+                    background: '#f5f5f5',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    marginTop: '20px'
+                }}>
+                    <h3>🤖 雅思考官反馈</h3>
+                    <div className="markdown-body" style={{
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word'
+                    }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {aiResponse}
+                        </ReactMarkdown>
+                    </div>
+                    {!isSpeaking && (
                         <button
                             onClick={() => speakText(aiResponse)}
                             style={{
-                                marginLeft: '12px',
+                                marginTop: '12px',
                                 padding: '6px 16px',
                                 background: '#1890ff',
                                 color: 'white',
@@ -555,27 +687,22 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 </div>
             )}
 
-            {loading && <div style={{ textAlign: 'center', padding: '20px', color: '#1890ff' }}>🤖 AI 评分中，请稍候...</div>}
-            {transcribing && <div style={{ textAlign: 'center', padding: '16px', color: '#1890ff' }}>🎧 正在识别录音，请稍候...</div>}
-
-            {aiResponse && (
-                <div style={{ background: '#f5f5f5', padding: '20px', borderRadius: '8px', marginTop: '20px' }}>
-                    <h3>📊 AI 评分与反馈</h3>
-                    <div className="markdown-body" style={{ fontSize: '14px', lineHeight: '1.6', wordBreak: 'break-word' }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiResponse}</ReactMarkdown>
-                    </div>
-                </div>
-            )}
-
             {/* 使用说明 */}
-            <div style={{ marginTop: '24px', padding: '16px', background: '#fff7e6', borderRadius: '8px', border: '1px solid #ffc53d' }}>
-                <strong>💡 雅思口语考试说明：</strong>
+            <div style={{
+                marginTop: '30px',
+                padding: '16px',
+                background: '#fff7e6',
+                borderRadius: '8px',
+                border: '1px solid #ffc53d'
+            }}>
+                <strong>💡 雅思口语使用说明：</strong>
                 <ul style={{ margin: '8px 0 0 20px', lineHeight: '1.6' }}>
-                    <li>Part 1：日常话题，2-3句话回答</li>
-                    <li>Part 2：1分钟准备 + 2分钟陈述，涵盖所有要点</li>
-                    <li>Part 3：抽象话题，表达观点并举例</li>
-                    <li>按住空格键开始录音，松开自动结束识别</li>
-                    <li>识别后可以手动修正文本，再提交AI评分</li>
+                    <li><strong>快速模式</strong>：浏览器实时识别，适合日常练习</li>
+                    <li><strong>精准模式</strong>：Whisper 模型识别，适合正式模拟</li>
+                    <li>每次录音会<strong>清空上一次的识别结果</strong>，AI 只分析最新一次回答</li>
+                    <li>提交前可手动修正识别文本，确保评分准确</li>
+                    <li>建议按 IELTS 回答时长准备：Part1 30-45秒，Part2 60-90秒</li>
+                    <li>AI 考官会从流利度、语法、词汇、发音四个维度评分</li>
                 </ul>
             </div>
         </div>

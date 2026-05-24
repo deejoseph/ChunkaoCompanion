@@ -105,6 +105,40 @@ def knowledge_points(conn, subject=None):
     )
 
 
+def banks(conn, subject=None, version=None, limit=200):
+    params = []
+    where = []
+    if subject:
+        where.append("qb.subject_id = ?")
+        params.append(subject)
+    if version:
+        where.append("qb.version_id = ?")
+        params.append(version)
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    params.append(limit)
+
+    return rows(
+        conn.execute(
+            f"""
+            SELECT qb.id, qb.topic_id, t.title AS topic_title, qb.subject_id, qb.version_id,
+                   qb.title, qb.source_title, qb.source_path, qb.source_format, qb.paper_type,
+                   qb.year, qb.total_questions, qb.updated_at,
+                   COUNT(DISTINCT q.id) AS question_count,
+                   COUNT(DISTINCT qkp.question_id) AS linked_question_count
+            FROM question_banks qb
+            LEFT JOIN topics t ON t.id = qb.topic_id
+            LEFT JOIN questions q ON q.bank_id = qb.id
+            LEFT JOIN question_knowledge_points qkp ON qkp.question_id = q.id
+            {where_sql}
+            GROUP BY qb.id
+            ORDER BY qb.subject_id, qb.year, qb.title
+            LIMIT ?
+            """,
+            params,
+        )
+    )
+
+
 def questions(conn, subject=None, bank_id=None, limit=100):
     params = []
     where = []
@@ -117,12 +151,13 @@ def questions(conn, subject=None, bank_id=None, limit=100):
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     params.append(limit)
 
-    return rows(
+    question_rows = rows(
         conn.execute(
             f"""
             SELECT q.id, q.bank_id, qb.title AS bank_title, q.topic_id, q.subject_id, q.version_id,
                    q.number, q.original_number, q.type, q.content, q.source_answer,
-                   q.final_answer, q.analysis, q.score, q.difficulty, q.source
+                   q.final_answer, q.analysis, q.score, q.difficulty, q.page_number,
+                   q.parse_confidence, q.needs_review, q.source
             FROM questions q
             JOIN question_banks qb ON qb.id = q.bank_id
             {where_sql}
@@ -133,10 +168,37 @@ def questions(conn, subject=None, bank_id=None, limit=100):
         )
     )
 
+    for question in question_rows:
+        question["knowledge_points"] = rows(
+            conn.execute(
+                """
+                SELECT kp.id, kp.name, kp.category, qkp.confidence, qkp.source, qkp.note
+                FROM question_knowledge_points qkp
+                JOIN knowledge_points kp ON kp.id = qkp.knowledge_point_id
+                WHERE qkp.question_id = ?
+                ORDER BY qkp.confidence DESC, kp.name
+                """,
+                (question["id"],),
+            )
+        )
+        question["assets"] = rows(
+            conn.execute(
+                """
+                SELECT id, asset_type, file_path, page_number, bbox_json, description
+                FROM question_assets
+                WHERE question_id = ?
+                ORDER BY page_number, asset_type
+                """,
+                (question["id"],),
+            )
+        )
+
+    return question_rows
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["summary", "topics", "knowledge-points", "questions"])
+    parser.add_argument("command", choices=["summary", "topics", "knowledge-points", "banks", "questions"])
     parser.add_argument("--subject")
     parser.add_argument("--version")
     parser.add_argument("--bank-id")
@@ -153,6 +215,8 @@ def main():
             data = summary(conn)
         elif args.command == "topics":
             data = topics(conn, args.subject, args.version)
+        elif args.command == "banks":
+            data = banks(conn, args.subject, args.version, args.limit)
         elif args.command == "questions":
             data = questions(conn, args.subject, args.bank_id, args.limit)
         else:

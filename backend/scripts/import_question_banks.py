@@ -58,6 +58,14 @@ def infer_question_type(question):
     return "qa"
 
 
+def infer_year(*values):
+    for value in values:
+        match = re.search(r"(20\d{2})", str(value or ""))
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def import_banks(conn):
     now = datetime.now().isoformat(timespec="seconds")
     stats = {"banks": 0, "questions": 0, "skipped": 0}
@@ -75,19 +83,28 @@ def import_banks(conn):
         subject = data.get("subject") or "unknown"
         version = str(data.get("version") or "") or None
         title = data.get("title") or path.stem.replace("_question_bank", "")
+        source_title = data.get("sourceTitle") or data.get("source_title") or title
         paper_id = data.get("paperId") or path.stem.replace("_question_bank", "")
         questions = data.get("questions") or []
         topic_id = find_topic(conn, subject, version, title)
         bank_id = stable_id("bank", paper_id)
+        year = infer_year(data.get("year"), title, paper_id, path.name)
 
         conn.execute(
             """
-            INSERT INTO question_banks(id, topic_id, subject_id, version_id, title, source_path, total_questions, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO question_banks(
+                id, topic_id, subject_id, version_id, title, source_title, source_path,
+                source_format, paper_type, year, total_questions, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 topic_id=excluded.topic_id,
                 title=excluded.title,
+                source_title=excluded.source_title,
                 source_path=excluded.source_path,
+                source_format=excluded.source_format,
+                paper_type=excluded.paper_type,
+                year=excluded.year,
                 total_questions=excluded.total_questions,
                 updated_at=excluded.updated_at
             """,
@@ -97,7 +114,11 @@ def import_banks(conn):
                 subject,
                 version,
                 title,
+                source_title,
                 str(path.relative_to(PROJECT_ROOT)),
+                "json",
+                data.get("paperType") or data.get("paper_type") or "question_bank",
+                year,
                 len(questions),
                 now,
                 now,
@@ -115,9 +136,10 @@ def import_banks(conn):
                 """
                 INSERT INTO questions(
                     id, bank_id, topic_id, subject_id, version_id, number, original_number, type,
-                    content, source_answer, final_answer, analysis, source, raw_json, created_at, updated_at
+                    content, source_answer, final_answer, analysis, score, difficulty, page_number,
+                    parse_confidence, needs_review, source, raw_json, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     question_id,
@@ -132,6 +154,11 @@ def import_banks(conn):
                     str(question.get("sourceAnswer") or ""),
                     str(question.get("finalAnswer") or question.get("sourceAnswer") or ""),
                     str(question.get("analysis") or ""),
+                    question.get("score"),
+                    question.get("difficulty"),
+                    question.get("pageNumber") or question.get("page_number"),
+                    question.get("parseConfidence") or question.get("parse_confidence") or 0.7,
+                    0 if question.get("sourceAnswer") else 1,
                     "question_bank_json",
                     json.dumps(question, ensure_ascii=False),
                     now,

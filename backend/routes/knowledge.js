@@ -10,6 +10,7 @@ const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'py
 const INIT_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/init_knowledge_db.py');
 const QUERY_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/query_knowledge_db.py');
 const IMPORT_BANKS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_question_banks.py');
+const LINK_QUESTION_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/link_question_knowledge.py');
 
 function runPython(script, args = []) {
     return new Promise((resolve, reject) => {
@@ -84,9 +85,38 @@ router.get('/points', async (req, res) => {
     }
 });
 
+router.get('/banks', async (req, res) => {
+    try {
+        const args = ['banks'];
+        if (req.query.subject) args.push('--subject', req.query.subject);
+        if (req.query.version) args.push('--version', req.query.version);
+        if (req.query.limit) args.push('--limit', req.query.limit);
+        const result = await runPython(QUERY_SCRIPT, args);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 router.post('/import-question-banks', async (req, res) => {
     try {
         const result = await runPython(IMPORT_BANKS_SCRIPT);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr
+        });
+    }
+});
+
+router.post('/link-question-knowledge', async (req, res) => {
+    try {
+        const args = [];
+        if (req.body?.subject) args.push('--subject', req.body.subject);
+        if (req.body?.reset) args.push('--reset');
+        const result = await runPython(LINK_QUESTION_KNOWLEDGE_SCRIPT, args);
         res.json(result);
     } catch (error) {
         res.status(500).json({
@@ -145,7 +175,9 @@ router.get('/source-answers', async (req, res) => {
         console.log('找到的题库:', bank);
         
         let answers = [];
+        let bankId = null;
         if (bank) {
+            bankId = bank.id;
             answers = await db.all(
                 `SELECT number, source_answer FROM questions 
                  WHERE bank_id = ? 
@@ -157,7 +189,7 @@ router.get('/source-answers', async (req, res) => {
         
         await db.close();
         
-        res.json({ success: true, answers: answers });
+        res.json({ success: true, bankId, answers: answers });
     } catch (error) {
         console.error('获取原答案失败:', error);
         res.status(500).json({ success: false, error: error.message });

@@ -248,11 +248,19 @@ router.post('/update-answer', async (req, res) => {
             driver: sqlite3.Database
         });
         
-        const result = await db.run(
+        let result = await db.run(
             `UPDATE questions SET source_answer = ?, updated_at = datetime('now') 
              WHERE original_number = ? AND bank_id = ?`,
             [sourceAnswer, questionNumber, bankId]
         );
+
+        if (result.changes === 0) {
+            result = await db.run(
+                `UPDATE questions SET source_answer = ?, updated_at = datetime('now')
+                 WHERE original_number = ? AND bank_id LIKE ?`,
+                [sourceAnswer, questionNumber, `%${bankId}%`]
+            );
+        }
         
         await db.close();
         

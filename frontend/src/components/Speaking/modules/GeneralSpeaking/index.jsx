@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import VoiceRecorder from '../../VoiceRecorder';
 import AudioDebugger from '../../AudioDebugger';
-import AIReference from '../../shared/AIReference'; 
+import AIReference from '../../shared/AIReference';
 
 const API_BASE = 'http://localhost:3001';
 
@@ -573,27 +573,52 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
             {!isConversationMode && (
                 <div style={{ marginBottom: '24px' }}>
                     <h3>📋 选择话题</h3>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                        {topics.map(topic => (
-                            <button
-                                key={topic.id}
-                                onClick={() => {
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <select
+                            value={selectedTopic?.id || ''}
+                            onChange={(e) => {
+                                const topicId = parseInt(e.target.value);
+                                const topic = topics.find(t => t.id === topicId);
+                                if (topic) {
                                     setSelectedTopic(topic);
+                                    clearConversation();
+                                }
+                            }}
+                            style={{
+                                padding: '8px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #d9d9d9',
+                                fontSize: '14px',
+                                minWidth: '180px',
+                                cursor: 'pointer',
+                                backgroundColor: 'white'
+                            }}
+                        >
+                            <option value="">-- 请选择话题 --</option>
+                            {topics.map(topic => (
+                                <option key={topic.id} value={topic.id}>
+                                    {topic.category}
+                                </option>
+                            ))}
+                        </select>
+                        {selectedTopic && (
+                            <button
+                                onClick={() => {
+                                    setSelectedTopic(null);
                                     clearConversation();
                                 }}
                                 style={{
-                                    padding: '8px 16px',
-                                    background: selectedTopic?.id === topic.id ? '#1890ff' : '#f0f0f0',
-                                    color: selectedTopic?.id === topic.id ? 'white' : '#333',
-                                    border: 'none',
+                                    padding: '6px 12px',
+                                    background: '#f0f0f0',
+                                    border: '1px solid #ccc',
                                     borderRadius: '20px',
                                     cursor: 'pointer',
-                                    fontSize: '13px'
+                                    fontSize: '12px'
                                 }}
                             >
-                                {topic.category}
+                                清除选择
                             </button>
-                        ))}
+                        )}
                     </div>
                 </div>
             )}
@@ -618,7 +643,7 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
             {selectedTopic && (
                 <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                     <button
-                        onClick={() => setShowAIReference(true)}   // 改为直接打开
+                        onClick={() => setShowAIReference(true)}
                         style={{
                             padding: '8px 20px',
                             background: '#722ed1',
@@ -634,12 +659,15 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 </div>
             )}
             
+            {/* AI 参考答案展示区域 - 已修改为左对齐 */}
             {showAIReference && selectedTopic && (
-                <AIReference
-                    currentQuestion={selectedTopic.question}
-                    context="general"
-                    onClose={() => setShowAIReference(false)}
-                />
+                <div style={{ textAlign: 'left' }}>
+                    <AIReference
+                        currentQuestion={selectedTopic.question}
+                        context="general"
+                        onClose={() => setShowAIReference(false)}
+                    />
+                </div>
             )}
 
             {/* 对话历史 */}

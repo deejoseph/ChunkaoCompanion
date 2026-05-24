@@ -8,6 +8,7 @@ function AIAnswerReference({ currentTopic, subject }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [sourceAnswersMap, setSourceAnswersMap] = useState({});
+    const [sourceAnswersBankId, setSourceAnswersBankId] = useState(null);
 
     useEffect(() => {
         if (isOpen && currentTopic) {
@@ -70,6 +71,7 @@ function AIAnswerReference({ currentTopic, subject }) {
                     answersMap[String(item.number)] = item.source_answer;
                 });
             }
+            setSourceAnswersBankId(dbResponse.data.bankId || null);
             
             console.log('数据库原试卷答案映射:', answersMap);
             console.log('第一个题目的编号:', bankData.questions[0]?.number, '类型:', typeof bankData.questions[0]?.number);
@@ -86,7 +88,7 @@ function AIAnswerReference({ currentTopic, subject }) {
 
     const updateAnswerInDatabase = async (questionNumber, newAnswer) => {
         try {
-            const bankId = bank?.paperId || bank?.id;
+            const bankId = sourceAnswersBankId || bank?.paperId || bank?.id;
             
             const response = await axios.post('http://localhost:3001/api/banks/update-answer', {
                 questionNumber: questionNumber,

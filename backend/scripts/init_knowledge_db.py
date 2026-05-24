@@ -89,6 +89,15 @@ def connect():
     return conn
 
 
+def ensure_column(conn, table_name, column_name, column_sql):
+    existing = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})")
+    }
+    if column_name not in existing:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+
 def create_schema(conn):
     conn.executescript(
         """
@@ -161,7 +170,11 @@ def create_schema(conn):
             subject_id TEXT NOT NULL,
             version_id TEXT,
             title TEXT NOT NULL,
+            source_title TEXT,
             source_path TEXT,
+            source_format TEXT,
+            paper_type TEXT,
+            year INTEGER,
             total_questions INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -185,6 +198,10 @@ def create_schema(conn):
             analysis TEXT DEFAULT '',
             score REAL,
             difficulty TEXT,
+            page_number INTEGER,
+            source_file_id TEXT,
+            parse_confidence REAL,
+            needs_review INTEGER NOT NULL DEFAULT 0,
             source TEXT NOT NULL DEFAULT 'imported_bank',
             raw_json TEXT,
             created_at TEXT NOT NULL,
@@ -194,6 +211,125 @@ def create_schema(conn):
             FOREIGN KEY(subject_id) REFERENCES subjects(id),
             FOREIGN KEY(version_id) REFERENCES versions(id)
         );
+
+        CREATE TABLE IF NOT EXISTS question_knowledge_points (
+            question_id TEXT NOT NULL,
+            knowledge_point_id TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.5,
+            source TEXT NOT NULL DEFAULT 'rule',
+            note TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(question_id, knowledge_point_id),
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE,
+            FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS question_assets (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            page_number INTEGER,
+            bbox_json TEXT,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS question_parse_logs (
+            id TEXT PRIMARY KEY,
+            bank_id TEXT,
+            question_id TEXT,
+            source_file_id TEXT,
+            action TEXT NOT NULL,
+            message TEXT DEFAULT '',
+            payload_json TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(bank_id) REFERENCES question_banks(id) ON DELETE CASCADE,
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_file_id) REFERENCES source_files(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_question_banks_subject ON question_banks(subject_id, version_id);
+        CREATE INDEX IF NOT EXISTS idx_questions_bank ON questions(bank_id, number);
+        CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic_id);
+        CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id, version_id);
+        CREATE INDEX IF NOT EXISTS idx_qkp_knowledge ON question_knowledge_points(knowledge_point_id);
+        CREATE INDEX IF NOT EXISTS idx_question_assets_question ON question_assets(question_id);
+        """
+    )
+    migrate_schema(conn)
+
+
+def migrate_schema(conn):
+    """Additive migrations only. Existing answer fields must remain stable."""
+    optional_columns = {
+        "question_banks": [
+            ("source_title", "source_title TEXT"),
+            ("source_format", "source_format TEXT"),
+            ("paper_type", "paper_type TEXT"),
+            ("year", "year INTEGER"),
+        ],
+        "questions": [
+            ("page_number", "page_number INTEGER"),
+            ("source_file_id", "source_file_id TEXT"),
+            ("parse_confidence", "parse_confidence REAL"),
+            ("needs_review", "needs_review INTEGER NOT NULL DEFAULT 0"),
+        ],
+    }
+
+    for table_name, columns in optional_columns.items():
+        for column_name, column_sql in columns:
+            ensure_column(conn, table_name, column_name, column_sql)
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS question_knowledge_points (
+            question_id TEXT NOT NULL,
+            knowledge_point_id TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.5,
+            source TEXT NOT NULL DEFAULT 'rule',
+            note TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(question_id, knowledge_point_id),
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE,
+            FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS question_assets (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL,
+            asset_type TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            page_number INTEGER,
+            bbox_json TEXT,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS question_parse_logs (
+            id TEXT PRIMARY KEY,
+            bank_id TEXT,
+            question_id TEXT,
+            source_file_id TEXT,
+            action TEXT NOT NULL,
+            message TEXT DEFAULT '',
+            payload_json TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(bank_id) REFERENCES question_banks(id) ON DELETE CASCADE,
+            FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE,
+            FOREIGN KEY(source_file_id) REFERENCES source_files(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_question_banks_subject ON question_banks(subject_id, version_id);
+        CREATE INDEX IF NOT EXISTS idx_questions_bank ON questions(bank_id, number);
+        CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic_id);
+        CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id, version_id);
+        CREATE INDEX IF NOT EXISTS idx_qkp_knowledge ON question_knowledge_points(knowledge_point_id);
+        CREATE INDEX IF NOT EXISTS idx_question_assets_question ON question_assets(question_id);
         """
     )
 
