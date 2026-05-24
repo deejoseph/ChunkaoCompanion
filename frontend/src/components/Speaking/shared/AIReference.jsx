@@ -1,3 +1,4 @@
+// frontend/src/components/Speaking/shared/AIReference.jsx
 import { useState } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
@@ -5,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 
 const API_BASE = 'http://localhost:3001';
 
-// 预设的四个英语模型
+// 四个英语模型（使用已安装的模型）
 const AI_MODELS = [
     { id: 'qwen2.5:7b', name: '小明', color: '#1890ff', description: '快速响应，适合基础练习' },
     { id: 'qwen2.5:14b', name: '小红', color: '#52c41a', description: '回答详细，适合深度分析' },
@@ -23,57 +24,7 @@ function AIReference({ currentQuestion, context, onClose }) {
         
         setLoading(prev => ({ ...prev, [modelId]: true }));
         
-        let prompt = '';
-        
-        // 根据上下文构建不同的提示词
-        if (context === 'ielts_part1') {
-            prompt = `你是雅思考生${modelName}。请用英语回答以下雅思口语 Part 1 问题：
-
-问题：${currentQuestion}
-
-要求：
-1. 回答长度 2-3 句话
-2. 自然、口语化
-3. 直接回答问题，不要绕弯子
-4. 可以适当使用 well, I think, actually 等连接词
-
-请直接输出你的回答：`;
-        } else if (context === 'ielts_part2') {
-            prompt = `你是雅思考生${modelName}。请用英语回答以下雅思口语 Part 2 话题：
-
-话题：${currentQuestion}
-
-要求：
-1. 回答长度 1.5-2 分钟（约 200-300 词）
-2. 结构清晰：开头介绍 → 主体内容 → 结尾总结
-3. 自然、口语化，不要像背诵
-4. 包含具体例子和个人感受
-
-请直接输出你的回答：`;
-        } else if (context === 'ielts_part3') {
-            prompt = `你是雅思考生${modelName}。请用英语回答以下雅思口语 Part 3 抽象话题：
-
-问题：${currentQuestion}
-
-要求：
-1. 回答长度 3-5 句话
-2. 表达观点并给出理由
-3. 可以用例子支持
-4. 展现批判性思维
-
-请直接输出你的回答：`;
-        } else {
-            prompt = `你是雅思考生${modelName}。请用英语回答以下口语问题：
-
-问题：${currentQuestion}
-
-要求：
-1. 自然、口语化
-2. 回答长度 30-60 秒
-3. 包含 2-3 个要点
-
-请直接输出你的回答：`;
-        }
+        let prompt = `你是雅思考生${modelName}。请用英语回答以下问题：\n\n${currentQuestion}\n\n请直接输出你的回答：`;
         
         try {
             const response = await axios.post(`${API_BASE}/api/ai/ask`, {
@@ -100,7 +51,6 @@ function AIReference({ currentQuestion, context, onClose }) {
         for (const model of AI_MODELS) {
             if (!answers[model.id]) {
                 await generateAnswer(model.id, model.name);
-                // 间隔 500ms 避免请求过快
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
@@ -143,11 +93,7 @@ function AIReference({ currentQuestion, context, onClose }) {
             </div>
 
             {/* 内容区域 */}
-            <div style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: 16
-            }}>
+            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
                 {/* 当前问题 */}
                 <div style={{
                     background: '#f0f7ff',
@@ -188,7 +134,6 @@ function AIReference({ currentQuestion, context, onClose }) {
                         borderRadius: 8,
                         overflow: 'hidden'
                     }}>
-                        {/* 模型标题 */}
                         <div style={{
                             padding: '10px 12px',
                             background: `${model.color}10`,
@@ -200,15 +145,8 @@ function AIReference({ currentQuestion, context, onClose }) {
                             gap: 8
                         }}>
                             <div>
-                                <span style={{
-                                    fontWeight: 'bold',
-                                    color: model.color
-                                }}>🧑‍🎓 {model.name}</span>
-                                <span style={{
-                                    fontSize: 11,
-                                    color: '#999',
-                                    marginLeft: 8
-                                }}>{model.description}</span>
+                                <span style={{ fontWeight: 'bold', color: model.color }}>🧑‍🎓 {model.name}</span>
+                                <span style={{ fontSize: 11, color: '#999', marginLeft: 8 }}>{model.description}</span>
                             </div>
                             {!answers[model.id] && !loading[model.id] && (
                                 <button
@@ -231,7 +169,6 @@ function AIReference({ currentQuestion, context, onClose }) {
                             )}
                         </div>
 
-                        {/* 回答内容 */}
                         {answers[model.id] && (
                             <div style={{
                                 padding: 12,

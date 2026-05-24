@@ -4,10 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import VoiceRecorder from '../../VoiceRecorder';
 import AudioDebugger from '../../AudioDebugger';
+import AIReference from '../../shared/AIReference'; 
 
 const API_BASE = 'http://localhost:3001';
 
-function GeneralSpeaking() {
+function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
+    // 状态
+    const [showAIReference, setShowAIReference] = useState(false);
     const [aiResponse, setAiResponse] = useState('');
     const [loading, setLoading] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
@@ -21,7 +24,6 @@ function GeneralSpeaking() {
     const speakTimeoutRef = useRef(null);
     const [conversationHistory, setConversationHistory] = useState([]);
     const [isConversationMode, setIsConversationMode] = useState(false);
-    const [recognitionEngine, setRecognitionEngine] = useState('webspeech');
     const [transcribing, setTranscribing] = useState(false);
     const [recognitionStatus, setRecognitionStatus] = useState('');
     const [lastTranscribeTime, setLastTranscribeTime] = useState(null);
@@ -32,6 +34,35 @@ function GeneralSpeaking() {
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
     const isProcessingRef = useRef(false);
+
+    // 话题库
+    const topics = [
+        { id: 1, question: "Do you like reading books? Why or why not?", category: "Hobby" },
+        { id: 2, question: "What kind of music do you enjoy listening to?", category: "Music" },
+        { id: 3, question: "Do you prefer to work or study alone or with others?", category: "Study" },
+        { id: 4, question: "How often do you use the internet?", category: "Technology" },
+        { id: 5, question: "What's your favorite season and why?", category: "Weather" },
+        { id: 6, question: "Do you like to travel? Why or why not?", category: "Travel" },
+        { id: 7, question: "What sports do you enjoy playing or watching?", category: "Sports" },
+        { id: 8, question: "How do you usually celebrate festivals?", category: "Culture" },
+        { id: 9, question: "Describe a person who has influenced you.", category: "People" },
+        { id: 10, question: "What is your favorite movie and why?", category: "Entertainment" },
+        { id: 11, question: "Do you prefer city life or country life?", category: "Lifestyle" },
+        { id: 12, question: "What are the benefits of learning a foreign language?", category: "Education" }
+    ];
+
+    // 场景预设
+    const scenarios = [
+        { id: 'general', name: '💬 日常对话', icon: '💬', systemPrompt: '你是一位朋友，正在和朋友聊天。请用英文对话，轻松自然。' },
+        { id: 'interview', name: '💼 求职面试', icon: '💼', systemPrompt: '你是一位面试官，正在面试一位应聘者。请用英文提问，问题要专业但友好。' },
+        { id: 'visa', name: '🛂 签证面试', icon: '🛂', systemPrompt: '你是一位签证官，正在面试申请签证的人。请用英文提问，问题要正式但礼貌。' },
+        { id: 'business', name: '📊 商务会议', icon: '📊', systemPrompt: '你是一位商务合作伙伴，正在讨论合作事宜。请用英文交流，语气专业。' },
+        { id: 'shopping', name: '🛍️ 购物', icon: '🛍️', systemPrompt: '你是一位商店店员，正在帮助顾客。请用英文对话，友好热情。' },
+        { id: 'travel', name: '✈️ 旅游', icon: '✈️', systemPrompt: '你是一位当地导游，正在和游客聊天。请用英文对话，介绍当地风情。' },
+        { id: 'cafe', name: '☕ 咖啡厅', icon: '☕', systemPrompt: '你是一位咖啡厅店员，正在接待顾客。请用英文对话，轻松自然。' }
+    ];
+
+    const [selectedScenario, setSelectedScenario] = useState(null);
 
     // Whisper 识别函数
     const transcribeWithWhisper = async (audioBlob, modelSize = 'small') => {
@@ -99,28 +130,6 @@ function GeneralSpeaking() {
 
         transcribeWithWhisper(blob, 'small');
     };
-
-    const topics = [
-        { id: 1, question: "Do you like reading books? Why or why not?", category: "Hobby" },
-        { id: 2, question: "What kind of music do you enjoy listening to?", category: "Music" },
-        { id: 3, question: "Do you prefer to work or study alone or with others?", category: "Study" },
-        { id: 4, question: "How often do you use the internet?", category: "Technology" },
-        { id: 5, question: "What's your favorite season and why?", category: "Weather" },
-        { id: 6, question: "Do you like to travel? Why or why not?", category: "Travel" },
-        { id: 7, question: "What sports do you enjoy playing or watching?", category: "Sports" },
-        { id: 8, question: "How do you usually celebrate festivals?", category: "Culture" },
-    ];
-
-    const scenarios = [
-        { id: 'interview', name: '💼 求职面试', icon: '💼', systemPrompt: '你是一位面试官，正在面试一位应聘者。请用英文提问，问题要专业但友好。' },
-        { id: 'visa', name: '🛂 签证面试', icon: '🛂', systemPrompt: '你是一位签证官，正在面试申请签证的人。请用英文提问，问题要正式但礼貌。' },
-        { id: 'business', name: '📊 商务会议', icon: '📊', systemPrompt: '你是一位商务合作伙伴，正在讨论合作事宜。请用英文交流，语气专业。' },
-        { id: 'shopping', name: '🛍️ 购物', icon: '🛍️', systemPrompt: '你是一位商店店员，正在帮助顾客。请用英文对话，友好热情。' },
-        { id: 'travel', name: '✈️ 旅游', icon: '✈️', systemPrompt: '你是一位当地导游，正在和游客聊天。请用英文对话，介绍当地风情。' },
-        { id: 'cafe', name: '☕ 咖啡厅', icon: '☕', systemPrompt: '你是一位咖啡厅店员，正在接待顾客。请用英文对话，轻松自然。' }
-    ];
-
-    const [selectedScenario, setSelectedScenario] = useState(null);
 
     const speakText = (text) => {
         if (!window.speechSynthesis) {
@@ -280,6 +289,27 @@ function GeneralSpeaking() {
         };
     }, []);
 
+    const startConversation = (scenario) => {
+        setSelectedScenario(scenario);
+        setIsConversationMode(true);
+        setConversationHistory([]);
+        clearConversation();
+        
+        const openingPrompt = `${scenario.systemPrompt}\n\n请用英文说一句开场白，开始对话。`;
+        
+        axios.post(`${API_BASE}/api/ai/ask`, {
+            subject: 'english',
+            question: openingPrompt,
+            model: localStorage.getItem('english_model_fast') || 'qwen2.5:7b'
+        }).then(response => {
+            if (response.data.success) {
+                const opening = response.data.answer;
+                setAiResponse(opening);
+                setConversationHistory([{ role: 'ai', content: opening, timestamp: new Date() }]);
+            }
+        }).catch(err => console.error('开场白生成失败:', err));
+    };
+
     const analyzeWithAI = async () => {
         const currentTranscript = fullTranscript || sentences.join(' ');
         if (!currentTranscript.trim()) {
@@ -359,27 +389,6 @@ function GeneralSpeaking() {
         }
     };
 
-    const startConversation = (scenario) => {
-        setSelectedScenario(scenario);
-        setIsConversationMode(true);
-        setConversationHistory([]);
-        clearConversation();
-        
-        const openingPrompt = `${scenario.systemPrompt}\n\n请用英文说一句开场白，开始对话。`;
-        
-        axios.post(`${API_BASE}/api/ai/ask`, {
-            subject: 'english',
-            question: openingPrompt,
-            model: localStorage.getItem('english_model_fast') || 'qwen2.5:7b'
-        }).then(response => {
-            if (response.data.success) {
-                const opening = response.data.answer;
-                setAiResponse(opening);
-                setConversationHistory([{ role: 'ai', content: opening, timestamp: new Date() }]);
-            }
-        }).catch(err => console.error('开场白生成失败:', err));
-    };
-
     const exitConversationMode = () => {
         setIsConversationMode(false);
         setSelectedScenario(null);
@@ -393,7 +402,7 @@ function GeneralSpeaking() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                     <h2 style={{ margin: 0 }}>🗣️ 通用口语练习</h2>
-                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#666' }}>支持场景对话和雅思评分模式</p>
+                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#666' }}>支持话题自述和场景对话模式</p>
                 </div>
             </div>
             
@@ -422,20 +431,18 @@ function GeneralSpeaking() {
                         cursor: 'pointer'
                     }}
                 >
-                    📝 雅思评分模式
+                    🎤 话题自述模式
                 </button>
                 <button
                     onClick={() => {
-                        if (isConversationMode) {
-                            exitConversationMode();
-                        } else {
-                            setIsConversationMode(true);
-                        }
+                        setIsConversationMode(true);
+                        setSelectedScenario(null);
+                        clearConversation();
                     }}
                     style={{
                         padding: '8px 20px',
-                        background: isConversationMode ? '#52c41a' : '#f0f0f0',
-                        color: isConversationMode ? 'white' : '#333',
+                        background: isConversationMode && !selectedScenario ? '#52c41a' : '#f0f0f0',
+                        color: isConversationMode && !selectedScenario ? 'white' : '#333',
                         border: 'none',
                         borderRadius: '20px',
                         cursor: 'pointer'
@@ -443,41 +450,26 @@ function GeneralSpeaking() {
                 >
                     💬 场景对话模式
                 </button>
-
-                {/* 识别引擎选择 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-                    <span style={{ fontSize: '13px', color: '#666' }}>识别引擎：</span>
-                    <button
-                        onClick={() => setRecognitionEngine('webspeech')}
-                        style={{
-                            padding: '6px 16px',
-                            background: recognitionEngine === 'webspeech' ? '#1890ff' : '#f0f0f0',
-                            color: recognitionEngine === 'webspeech' ? 'white' : '#333',
-                            border: 'none',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '13px'
-                        }}
-                    >
-                        ⚡ 快速模式
-                    </button>
-                    <button
-                        onClick={() => setRecognitionEngine('whisper')}
-                        style={{
-                            padding: '6px 16px',
-                            background: recognitionEngine === 'whisper' ? '#52c41a' : '#f0f0f0',
-                            color: recognitionEngine === 'whisper' ? 'white' : '#333',
-                            border: 'none',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '13px'
-                        }}
-                    >
-                        🎯 精准模式 (Whisper)
-                    </button>
-                </div>
+                <button
+                    onClick={() => {
+                        setIsConversationMode(true);
+                        const visaScenario = scenarios.find(s => s.id === 'visa');
+                        if (visaScenario) startConversation(visaScenario);
+                    }}
+                    style={{
+                        padding: '8px 20px',
+                        background: isConversationMode && selectedScenario?.id === 'visa' ? '#fa8c16' : '#f0f0f0',
+                        color: isConversationMode && selectedScenario?.id === 'visa' ? 'white' : '#333',
+                        border: 'none',
+                        borderRadius: '20px',
+                        cursor: 'pointer'
+                    }}
+                >
+                    🛂 签证对话模式
+                </button>
             </div>
 
+            {/* 练习时长选择 */}
             {!isConversationMode && (
                 <div style={{
                     marginBottom: '20px',
@@ -542,7 +534,7 @@ function GeneralSpeaking() {
                 </div>
             )}
 
-            {/* 当前场景/话题显示 */}
+            {/* 当前场景显示 */}
             {isConversationMode && selectedScenario && (
                 <div style={{
                     background: '#e6f7ff',
@@ -577,7 +569,7 @@ function GeneralSpeaking() {
                 </div>
             )}
 
-            {/* 话题选择（评分模式） */}
+            {/* 话题选择（自述模式） */}
             {!isConversationMode && (
                 <div style={{ marginBottom: '24px' }}>
                     <h3>📋 选择话题</h3>
@@ -606,7 +598,7 @@ function GeneralSpeaking() {
                 </div>
             )}
 
-            {/* 当前话题/场景显示 */}
+            {/* 当前话题显示 */}
             {!isConversationMode && selectedTopic && (
                 <div style={{
                     background: '#e6f7ff',
@@ -622,7 +614,35 @@ function GeneralSpeaking() {
                 </div>
             )}
 
-            {/* 对话历史（对话模式） */}
+            {/* 🔥 AI 参考答案按钮 */}
+            {selectedTopic && (
+                <div style={{ marginBottom: '16px', textAlign: 'center' }}>
+                    <button
+                        onClick={() => setShowAIReference(true)}   // 改为直接打开
+                        style={{
+                            padding: '8px 20px',
+                            background: '#722ed1',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '14px'
+                        }}
+                    >
+                        🤖 查看 AI 参考答案
+                    </button>
+                </div>
+            )}
+            
+            {showAIReference && selectedTopic && (
+                <AIReference
+                    currentQuestion={selectedTopic.question}
+                    context="general"
+                    onClose={() => setShowAIReference(false)}
+                />
+            )}
+
+            {/* 对话历史 */}
             {isConversationMode && conversationHistory.length > 0 && (
                 <div style={{
                     background: '#f5f5f5',
@@ -894,6 +914,8 @@ function GeneralSpeaking() {
                     <li><strong>精准模式</strong>：使用本地 Whisper small 模型，适合正式评分</li>
                     <li>两种模式都会保存录音回放，提交前可以手动修正识别文本</li>
                     <li>按住空格键开始录音，松开自动结束</li>
+                    <li><strong>话题自述模式</strong>：选择话题后自行陈述，AI将给出评分</li>
+                    <li><strong>场景对话模式</strong>：与AI进行角色扮演对话</li>
                 </ul>
             </div>
         </div>

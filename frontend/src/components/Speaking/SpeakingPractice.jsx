@@ -6,11 +6,15 @@ import IELTSSpeaking from './modules/IELTS';
 
 function SpeakingPractice() {
     const [activeModule, setActiveModule] = useState('general');
+    const [recognitionEngine, setRecognitionEngine] = useState(() => {
+        return localStorage.getItem('speaking_recognition_engine') || 'webspeech';
+    });
 
     const renderModule = () => {
+        const commonProps = { recognitionEngine, setRecognitionEngine };
         switch (activeModule) {
             case 'ielts':
-                return <IELTSSpeaking />;
+                return <IELTSSpeaking {...commonProps} />;
             case 'toefl':
                 return <div style={{ textAlign: 'center', padding: '60px' }}>
                     <span style={{ fontSize: '48px' }}>🌍</span>
@@ -18,13 +22,18 @@ function SpeakingPractice() {
                     <p style={{ color: '#666' }}>开发中，敬请期待...</p>
                 </div>;
             default:
-                return <GeneralSpeaking />;
+                return <GeneralSpeaking {...commonProps} />;
         }
     };
 
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-            <SpeakingNav activeModule={activeModule} onSwitch={setActiveModule} />
+            <SpeakingNav 
+                activeModule={activeModule} 
+                onSwitch={setActiveModule}
+                recognitionEngine={recognitionEngine}
+                onRecognitionEngineChange={setRecognitionEngine}
+            />
             {renderModule()}
         </div>
     );
