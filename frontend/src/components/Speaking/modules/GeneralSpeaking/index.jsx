@@ -5,8 +5,26 @@ import remarkGfm from 'remark-gfm';
 import VoiceRecorder from '../../VoiceRecorder';
 import AudioDebugger from '../../AudioDebugger';
 import AIReference from '../../shared/AIReference';
+import { useTopics } from '../../shared/useTopics';
+import AddTopicModal from '../../shared/AddTopicModal';
 
 const API_BASE = 'http://localhost:3001';
+
+// 内置话题（静态）
+const BUILTIN_TOPICS = [
+    { id: 1, question: "Do you like reading books? Why or why not?", category: "Hobby" },
+    { id: 2, question: "What kind of music do you enjoy listening to?", category: "Music" },
+    { id: 3, question: "Do you prefer to work or study alone or with others?", category: "Study" },
+    { id: 4, question: "How often do you use the internet?", category: "Technology" },
+    { id: 5, question: "What's your favorite season and why?", category: "Weather" },
+    { id: 6, question: "Do you like to travel? Why or why not?", category: "Travel" },
+    { id: 7, question: "What sports do you enjoy playing or watching?", category: "Sports" },
+    { id: 8, question: "How do you usually celebrate festivals?", category: "Culture" },
+    { id: 9, question: "Describe a person who has influenced you.", category: "People" },
+    { id: 10, question: "What is your favorite movie and why?", category: "Entertainment" },
+    { id: 11, question: "Do you prefer city life or country life?", category: "Lifestyle" },
+    { id: 12, question: "What are the benefits of learning a foreign language?", category: "Education" }
+];
 
 function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
     // 状态
@@ -34,22 +52,11 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
     const isProcessingRef = useRef(false);
-
-    // 话题库
-    const topics = [
-        { id: 1, question: "Do you like reading books? Why or why not?", category: "Hobby" },
-        { id: 2, question: "What kind of music do you enjoy listening to?", category: "Music" },
-        { id: 3, question: "Do you prefer to work or study alone or with others?", category: "Study" },
-        { id: 4, question: "How often do you use the internet?", category: "Technology" },
-        { id: 5, question: "What's your favorite season and why?", category: "Weather" },
-        { id: 6, question: "Do you like to travel? Why or why not?", category: "Travel" },
-        { id: 7, question: "What sports do you enjoy playing or watching?", category: "Sports" },
-        { id: 8, question: "How do you usually celebrate festivals?", category: "Culture" },
-        { id: 9, question: "Describe a person who has influenced you.", category: "People" },
-        { id: 10, question: "What is your favorite movie and why?", category: "Entertainment" },
-        { id: 11, question: "Do you prefer city life or country life?", category: "Lifestyle" },
-        { id: 12, question: "What are the benefits of learning a foreign language?", category: "Education" }
-    ];
+    
+    // 添加话题模态框
+    const [showAddTopicModal, setShowAddTopicModal] = useState(false);
+    // 使用 hook 管理话题（内置 + 自定义）
+    const { topics, addTopic } = useTopics(BUILTIN_TOPICS, 'general_speaking_custom_topics');
 
     // 场景预设
     const scenarios = [
@@ -577,8 +584,8 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                         <select
                             value={selectedTopic?.id || ''}
                             onChange={(e) => {
-                                const topicId = parseInt(e.target.value);
-                                const topic = topics.find(t => t.id === topicId);
+                                const topicId = e.target.value;
+                                const topic = topics.find(t => String(t.id) === topicId);
                                 if (topic) {
                                     setSelectedTopic(topic);
                                     clearConversation();
@@ -589,7 +596,7 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                                 borderRadius: '8px',
                                 border: '1px solid #d9d9d9',
                                 fontSize: '14px',
-                                minWidth: '180px',
+                                minWidth: '220px',
                                 cursor: 'pointer',
                                 backgroundColor: 'white'
                             }}
@@ -597,10 +604,27 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                             <option value="">-- 请选择话题 --</option>
                             {topics.map(topic => (
                                 <option key={topic.id} value={topic.id}>
-                                    {topic.category}
+                                    {topic.category} - {topic.question.length > 50 ? topic.question.slice(0, 50) + '...' : topic.question}
                                 </option>
                             ))}
                         </select>
+                        <button
+                            onClick={() => setShowAddTopicModal(true)}
+                            style={{
+                                padding: '6px 12px',
+                                background: '#52c41a',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '20px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                            }}
+                        >
+                            ➕ 添加话题
+                        </button>
                         {selectedTopic && (
                             <button
                                 onClick={() => {
@@ -639,7 +663,7 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 </div>
             )}
 
-            {/* 🔥 AI 参考答案按钮 */}
+            {/* AI 参考答案按钮 */}
             {selectedTopic && (
                 <div style={{ marginBottom: '16px', textAlign: 'center' }}>
                     <button
@@ -659,7 +683,7 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 </div>
             )}
             
-            {/* AI 参考答案展示区域 - 已修改为左对齐 */}
+            {/* AI 参考答案展示区域 - 左对齐 */}
             {showAIReference && selectedTopic && (
                 <div style={{ textAlign: 'left' }}>
                     <AIReference
@@ -944,8 +968,16 @@ function GeneralSpeaking({ recognitionEngine, setRecognitionEngine }) {
                     <li>按住空格键开始录音，松开自动结束</li>
                     <li><strong>话题自述模式</strong>：选择话题后自行陈述，AI将给出评分</li>
                     <li><strong>场景对话模式</strong>：与AI进行角色扮演对话</li>
+                    <li><strong>自定义话题</strong>：点击「➕ 添加话题」可添加自己的练习题目，保存在浏览器中</li>
                 </ul>
             </div>
+
+            {/* 添加话题模态框 */}
+            <AddTopicModal
+                isOpen={showAddTopicModal}
+                onClose={() => setShowAddTopicModal(false)}
+                onAdd={addTopic}
+            />
         </div>
     );
 }

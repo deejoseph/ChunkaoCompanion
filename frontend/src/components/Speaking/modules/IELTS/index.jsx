@@ -5,8 +5,26 @@ import remarkGfm from 'remark-gfm';
 import VoiceRecorder from '../../VoiceRecorder';
 import AudioDebugger from '../../AudioDebugger';
 import AIReference from '../../shared/AIReference';
+import { useTopics } from '../../shared/useTopics';
+import AddTopicModal from '../../shared/AddTopicModal';
 
 const API_BASE = 'http://localhost:3001';
+
+// 内置雅思话题（Part1/2/3）
+const BUILTIN_TOPICS = [
+    { id: 1, question: "Do you work or are you a student?", category: "Part 1 - Work/Study" },
+    { id: 2, question: "What's your hometown like?", category: "Part 1 - Hometown" },
+    { id: 3, question: "Do you like reading books? Why/why not?", category: "Part 1 - Hobby" },
+    { id: 4, question: "How often do you use the internet?", category: "Part 1 - Technology" },
+    { id: 5, question: "Describe a person who has influenced you.", category: "Part 2 - People" },
+    { id: 6, question: "Describe a trip you remember well.", category: "Part 2 - Travel" },
+    { id: 7, question: "Describe a gift you gave to someone.", category: "Part 2 - Gift" },
+    { id: 8, question: "Do you think advertising influences people's buying habits?", category: "Part 3 - Advertising" },
+    { id: 9, question: "How has technology changed the way people communicate?", category: "Part 3 - Technology" },
+    { id: 10, question: "What are the advantages and disadvantages of living in a big city?", category: "Part 3 - City Life" },
+    { id: 11, question: "Do you think education should be free for everyone?", category: "Part 3 - Education" },
+    { id: 12, question: "What role does music play in people's lives?", category: "Part 3 - Music" }
+];
 
 function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     // 状态
@@ -33,21 +51,10 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const utteranceRef = useRef(null);
     const isProcessingRef = useRef(false);
 
-    // 雅思话题库（下拉菜单用 category 区分）
-    const topics = [
-        { id: 1, question: "Do you work or are you a student?", category: "Part 1 - Work/Study" },
-        { id: 2, question: "What's your hometown like?", category: "Part 1 - Hometown" },
-        { id: 3, question: "Do you like reading books? Why/why not?", category: "Part 1 - Hobby" },
-        { id: 4, question: "How often do you use the internet?", category: "Part 1 - Technology" },
-        { id: 5, question: "Describe a person who has influenced you.", category: "Part 2 - People" },
-        { id: 6, question: "Describe a trip you remember well.", category: "Part 2 - Travel" },
-        { id: 7, question: "Describe a gift you gave to someone.", category: "Part 2 - Gift" },
-        { id: 8, question: "Do you think advertising influences people's buying habits?", category: "Part 3 - Advertising" },
-        { id: 9, question: "How has technology changed the way people communicate?", category: "Part 3 - Technology" },
-        { id: 10, question: "What are the advantages and disadvantages of living in a big city?", category: "Part 3 - City Life" },
-        { id: 11, question: "Do you think education should be free for everyone?", category: "Part 3 - Education" },
-        { id: 12, question: "What role does music play in people's lives?", category: "Part 3 - Music" }
-    ];
+    // 添加话题模态框
+    const [showAddTopicModal, setShowAddTopicModal] = useState(false);
+    // 使用 hook 管理话题（内置 + 自定义）
+    const { topics, addTopic } = useTopics(BUILTIN_TOPICS, 'ielts_speaking_custom_topics');
 
     // Whisper 识别函数
     const transcribeWithWhisper = async (audioBlob, modelSize = 'small') => {
@@ -228,7 +235,6 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         }
     };
 
-    // 清空当前会话（识别结果、AI反馈等）
     const clearConversation = () => {
         setSentences([]);
         setCurrentInterim('');
@@ -247,7 +253,6 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const handleRecordingStart = () => {
         console.log('开始录音');
         setIsRecording(true);
-        // 关键修改：每次开始录音时清空之前的所有识别结果
         setSentences([]);
         setFullTranscript('');
         setCurrentInterim('');
@@ -257,7 +262,6 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
             URL.revokeObjectURL(audioUrlRef.current);
         }
         setAudioUrl(null);
-        // 同时清空之前的AI反馈（可选，避免混淆）
         setAiResponse('');
     };
 
@@ -325,7 +329,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
 
     return (
         <div>
-            {/* 标题区域 - 与通用口语完全一致 */}
+            {/* 标题区域 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                     <h2 style={{ margin: 0 }}>🎙️ 雅思口语专项练习</h2>
@@ -333,7 +337,7 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 </div>
             </div>
 
-            {/* 练习时长选择（保留雅思特色） */}
+            {/* 练习时长选择 */}
             <div style={{
                 marginBottom: '20px',
                 display: 'flex',
@@ -374,8 +378,8 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                     <select
                         value={selectedTopic?.id || ''}
                         onChange={(e) => {
-                            const topicId = parseInt(e.target.value);
-                            const topic = topics.find(t => t.id === topicId);
+                            const topicId = e.target.value;
+                            const topic = topics.find(t => String(t.id) === topicId);
                             if (topic) {
                                 setSelectedTopic(topic);
                                 clearConversation();
@@ -394,10 +398,27 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                         <option value="">-- 请选择话题 --</option>
                         {topics.map(topic => (
                             <option key={topic.id} value={topic.id}>
-                                {topic.category} - {topic.question.length > 40 ? topic.question.slice(0, 40) + '...' : topic.question}
+                                {topic.category} - {topic.question.length > 50 ? topic.question.slice(0, 50) + '...' : topic.question}
                             </option>
                         ))}
                     </select>
+                    <button
+                        onClick={() => setShowAddTopicModal(true)}
+                        style={{
+                            padding: '6px 12px',
+                            background: '#52c41a',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                    >
+                        ➕ 添加话题
+                    </button>
                     {selectedTopic && (
                         <button
                             onClick={() => {
@@ -703,8 +724,16 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                     <li>提交前可手动修正识别文本，确保评分准确</li>
                     <li>建议按 IELTS 回答时长准备：Part1 30-45秒，Part2 60-90秒</li>
                     <li>AI 考官会从流利度、语法、词汇、发音四个维度评分</li>
+                    <li><strong>自定义话题</strong>：点击「➕ 添加话题」可添加自己的练习题目，保存在浏览器中</li>
                 </ul>
             </div>
+
+            {/* 添加话题模态框 */}
+            <AddTopicModal
+                isOpen={showAddTopicModal}
+                onClose={() => setShowAddTopicModal(false)}
+                onAdd={addTopic}
+            />
         </div>
     );
 }

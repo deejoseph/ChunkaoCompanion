@@ -238,7 +238,6 @@ router.delete('/subject/:subject', (req, res) => {
     }
 });
 
-// 更新题目的 source_answer（通过 original_number 查找）
 router.post('/update-answer', async (req, res) => {
     const { questionNumber, bankId, sourceAnswer } = req.body;
     
@@ -248,16 +247,18 @@ router.post('/update-answer', async (req, res) => {
             driver: sqlite3.Database
         });
         
+        // 主要更新：使用 number 而不是 original_number
         let result = await db.run(
             `UPDATE questions SET source_answer = ?, updated_at = datetime('now') 
-             WHERE original_number = ? AND bank_id = ?`,
+             WHERE number = ? AND bank_id = ?`,
             [sourceAnswer, questionNumber, bankId]
         );
 
+        // 如果精确匹配失败，尝试模糊匹配 bank_id（兼容可能的前端传短ID）
         if (result.changes === 0) {
             result = await db.run(
                 `UPDATE questions SET source_answer = ?, updated_at = datetime('now')
-                 WHERE original_number = ? AND bank_id LIKE ?`,
+                 WHERE number = ? AND bank_id LIKE ?`,
                 [sourceAnswer, questionNumber, `%${bankId}%`]
             );
         }

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import SpeakingNav from './shared/SpeakingNav';
 import GeneralSpeaking from './modules/GeneralSpeaking';
 import IELTSSpeaking from './modules/IELTS';
+import TOEFLSpeaking from './modules/TOEFL';  // 新增
 
 function SpeakingPractice() {
     const [activeModule, setActiveModule] = useState('general');
@@ -16,11 +17,7 @@ function SpeakingPractice() {
             case 'ielts':
                 return <IELTSSpeaking {...commonProps} />;
             case 'toefl':
-                return <div style={{ textAlign: 'center', padding: '60px' }}>
-                    <span style={{ fontSize: '48px' }}>🌍</span>
-                    <h3>托福口语模块</h3>
-                    <p style={{ color: '#666' }}>开发中，敬请期待...</p>
-                </div>;
+                return <TOEFLSpeaking {...commonProps} />;  // 改为真实组件
             default:
                 return <GeneralSpeaking {...commonProps} />;
         }
