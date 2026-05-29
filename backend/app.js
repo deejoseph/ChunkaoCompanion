@@ -61,6 +61,55 @@ app.post('/api/ai/ask', async (req, res) => {
     }
 });
 
+// 启动超级AI（qwen3.6:27b）接口
+app.post('/api/ai/start-super-ai', (req, res) => {
+    const { exec } = require('child_process');
+    const path = require('path');
+    const fs = require('fs');
+    
+    try {
+        const scriptPath = path.join(__dirname, '..', 'start_super_ai.bat');
+        
+        // 验证脚本存在
+        if (!fs.existsSync(scriptPath)) {
+            return res.status(500).json({
+                success: false,
+                error: `脚本不存在: ${scriptPath}`
+            });
+        }
+        
+        console.log(`[DEBUG] 启动脚本路径: ${scriptPath}`);
+        
+        // 在新窗口中启动脚本（使用绝对路径和正确的引号）
+        const command = `start "" cmd /k "${scriptPath}"`;
+        console.log(`[DEBUG] 执行命令: ${command}`);
+        
+        exec(command, { 
+            cwd: path.dirname(scriptPath),
+            shell: true
+        }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('[ERROR] 启动超级AI失败:', error.message);
+            } else {
+                console.log('[SUCCESS] 超级AI启动命令已发送');
+            }
+            if (stderr) console.error('[STDERR]', stderr);
+        });
+        
+        res.json({
+            success: true,
+            message: '超级AI启动中...新窗口正在打开（qwen3.6:27b）',
+            note: '首次运行可能需要等待模型下载和加载，请耐心等待'
+        });
+    } catch (error) {
+        console.error('启动超级AI异常:', error);
+        res.status(500).json({
+            success: false,
+            error: '启动超级AI失败：' + error.message
+        });
+    }
+});
+
 // 健康检查
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

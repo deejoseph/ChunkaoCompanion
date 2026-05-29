@@ -17,7 +17,7 @@ const getModelDisplayLabel = (subject, modelValue) => {
     if (modelValue === 'qwen2.5:7b') return '🧮 数学·快速模式：qwen2.5:7b（5-15秒，适合基础题）';
     if (modelValue === 'qwen2-math:7b') return '🧮 数学·标准模式：qwen2-math:7b（15-30秒，数学专项）';
     if (modelValue === 'qwen2.5:14b') return '🧮 数学·专业模式：qwen2.5:14b（20-40秒，适合难题）';
-    if (modelValue === 'qwen2.5-coder:7b') return '🧮 数学·参考模式：qwen2.5-coder:7b（30-60秒，公式美观）';
+    if (modelValue === 'qwen2.5-coder-fast') return '🧮 数学·参考模式：qwen2.5-coder-fast（30-60秒，公式美观）';
     return `🧮 数学·${modelValue}`;
   }
   
@@ -26,7 +26,7 @@ const getModelDisplayLabel = (subject, modelValue) => {
     if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
     if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
     if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
-    if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+    if (modelValue === 'qwen2.5-coder-fast') return '📖 语文·参考模式：qwen2.5-coder-fast（30-60秒，规范输出）';
     return `📖 语文·${modelValue}`;
   }
 
@@ -35,7 +35,7 @@ const getModelDisplayLabel = (subject, modelValue) => {
     if (modelValue === 'gemma3:4b') return '🇬🇧 英语·快速模式：gemma3:4b（5-15秒，英语专用）';
     if (modelValue === 'qwen2.5:7b') return '🇬🇧 英语·标准模式：qwen2.5:7b（5-15秒，通用能力）';
     if (modelValue === 'qwen2.5:14b') return '🇬🇧 英语·专业模式：qwen2.5:14b（20-40秒，阅读/写作）';
-    if (modelValue === 'qwen2.5-coder:7b') return '🇬🇧 英语·参考模式：qwen2.5-coder:7b（30-60秒，翻译优化）';
+    if (modelValue === 'qwen2.5-coder-fast') return '🇬🇧 英语·参考模式：qwen2.5-coder-fast（30-60秒，翻译优化）';
     return `🇬🇧 英语·${modelValue}`;
   }
   
@@ -91,7 +91,7 @@ function AIAssistant() {
             if (modelValue === 'qwen2.5:7b') return '🧮 数学·快速模式：qwen2.5:7b（5-15秒，适合基础题）';
             if (modelValue === 'qwen2-math:7b') return '🧮 数学·标准模式：qwen2-math:7b（15-30秒，数学专项）';
             if (modelValue === 'qwen2.5:14b') return '🧮 数学·专业模式：qwen2.5:14b（20-40秒，适合难题）';
-            if (modelValue === 'qwen2.5-coder:7b') return '🧮 数学·参考模式：qwen2.5-coder:7b（30-60秒，公式美观）';
+            if (modelValue === 'qwen2.5-coder-fast') return '🧮 数学·参考模式：qwen2.5-coder-fast（30-60秒，公式美观）';
             return `🧮 数学·${modelValue}`;
         }
 
@@ -99,7 +99,7 @@ function AIAssistant() {
             if (modelValue === 'qwen2.5:7b') return '📖 语文·快速模式：qwen2.5:7b（5-15秒，基础阅读）';
             if (modelValue === 'qwen2.5:14b') return '📖 语文·专业模式：qwen2.5:14b（20-40秒，作文/阅读）';
             if (modelValue === 'glm4:9b') return '📖 语文·参考模式：glm4:9b（15-30秒，古文优化）';
-            if (modelValue === 'qwen2.5-coder:7b') return '📖 语文·参考模式：qwen2.5-coder:7b（30-60秒，规范输出）';
+            if (modelValue === 'qwen2.5-coder-fast') return '📖 语文·参考模式：qwen2.5-coder-fast（30-60秒，规范输出）';
             return `📖 语文·${modelValue}`;
         }
 
@@ -107,7 +107,7 @@ function AIAssistant() {
             if (modelValue === 'gemma3:4b') return '🇬🇧 英语·快速模式：gemma3:4b（5-15秒，英语专用）';
             if (modelValue === 'qwen2.5:7b') return '🇬🇧 英语·标准模式：qwen2.5:7b（5-15秒，通用能力）';
             if (modelValue === 'qwen2.5:14b') return '🇬🇧 英语·专业模式：qwen2.5:14b（20-40秒，阅读/写作）';
-            if (modelValue === 'qwen2.5-coder:7b') return '🇬🇧 英语·参考模式：qwen2.5-coder:7b（30-60秒，翻译优化）';
+            if (modelValue === 'qwen2.5-coder-fast') return '🇬🇧 英语·参考模式：qwen2.5-coder-fast（30-60秒，翻译优化）';
             return `🇬🇧 英语·${modelValue}`;
         }
 
@@ -502,11 +502,26 @@ function AIAssistant() {
                         35B大模型，适合复杂题目、压轴题和数学难题
                     </div>
                     <div style={{ fontSize: '11px', color: '#ff9800', marginTop: '6px' }}>
-                        ⚡ 需要先运行 ollama.bat 启动超级AI服务
+                        ⚡ 首次点击会自动启动 qwen3.6:27b 模型（需要 8GB+ 显存）
                     </div>
                 </div>
                 <button
-                    onClick={() => window.open('http://127.0.0.1:8080', '_blank')}
+                    onClick={async () => {
+                        try {
+                            const response = await fetch(`${API_BASE}/api/ai/start-super-ai`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' }
+                            });
+                            const result = await response.json();
+                            if (result.success) {
+                                alert(`✅ ${result.message}\n\n📌 ${result.note}`);
+                            } else {
+                                alert(`❌ 启动失败：${result.error}`);
+                            }
+                        } catch (error) {
+                            alert(`❌ 启动失败：${error.message}`);
+                        }
+                    }}
                     style={{
                         padding: '8px 20px',
                         background: '#52c41a',

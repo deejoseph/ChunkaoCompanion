@@ -21,7 +21,7 @@ function AIAnswerReference({ currentTopic, subject }) {
             'qwen2.5:7b': '#1890ff',
             'qwen2.5:14b': '#52c41a',
             'glm4:9b': '#722ed1',
-            'qwen2.5-coder:7b': '#eb2f96',
+            'qwen2.5-coder-fast': '#eb2f96',
             'qwen2-math:1.5b': '#13c2c2',
             'qwen2-math:7b': '#fa8c16',
             'gemma3:4b': '#2f54eb'

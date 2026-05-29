@@ -14,7 +14,7 @@ const MODEL_CONFIGS = {
         description: '适合疑难题目、代数证明'
     },
     math_balanced: {
-        model: 'qwen2.5-coder:7b',
+        model: 'qwen2.5-coder-fast',
         name: '均衡模式',
         description: '公式排版更稳定，兼顾推理'
     }
@@ -22,7 +22,7 @@ const MODEL_CONFIGS = {
 
 const DEFAULT_MODEL_MAP = {
     math: 'qwen2-math:7b',
-    code: 'qwen2.5-coder:7b',
+    code: 'qwen2.5-coder-fast',
     chinese: 'qwen2.5:7b',
     english: 'qwen2.5:7b',
     essay: 'qwen2.5:7b',

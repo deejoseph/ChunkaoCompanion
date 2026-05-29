@@ -146,10 +146,10 @@ function DataImport() {
             return [
                 localStorage.getItem('math_model_fast') || 'qwen2.5:7b',
                 localStorage.getItem('math_model_pro') || 'qwen2.5:14b',
-                localStorage.getItem('math_model_reference') || 'qwen2.5-coder:7b'
+                localStorage.getItem('math_model_reference') || 'qwen2.5-coder-fast'
             ];
         }
-        return ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5-coder:7b'];
+        return ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5-coder-fast'];
     };
 
     const getAISuggestedAnswer = (answers) => {
@@ -505,6 +505,7 @@ function DataImport() {
                 aiSuggestedAnswer: '',
                 verdict: null,
                 finalAnswer: '',
+                discussion: '',
                 analysis: ''
             }
         ]);
@@ -1555,65 +1556,31 @@ function DataImport() {
                                     marginBottom: '12px'
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <strong>🤝 找同学讨论</strong>
+                                        <strong>🤝 答案管理（讨论确认）</strong>
                                         <button
                                             onClick={() => prepareValidation(q)}
                                             disabled={loading}
                                             style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                                         >
-                                            讨论
+                                            💬 邀请同学讨论
                                         </button>
                                     </div>
 
-                                    {/* 三栏对比 - 我的答案 vs 同学答案 vs 参考答案 */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginTop: '12px' }}>
-                                        {/* 我的答案 */}
-                                        <div style={{ background: '#e6f7ff', padding: '10px', borderRadius: '6px' }}>
-                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>📝 我的答案</div>
-                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
-                                                {q.finalAnswer || '等待填写...'}
-                                            </div>
-                                        </div>
-
-                                        {/* 同学答案（AI建议） */}
-                                        <div style={{ background: '#f6ffed', padding: '10px', borderRadius: '6px' }}>
-                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#52c41a' }}>
-                                                👨‍🎓 同学的答案
-                                            </div>
-                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
-                                                {q.aiSuggestedAnswer || '暂未讨论'}
-                                            </div>
-                                            {q.aiAnswers && Object.keys(q.aiAnswers).length > 0 && (
-                                                <div style={{ marginTop: '8px', fontSize: '11px', color: '#999' }}>
-                                                    <details>
-                                                        <summary style={{ cursor: 'pointer' }}>看看不同同学的想法</summary>
-                                                        <div style={{ marginTop: '6px' }}>
-                                                            {Object.entries(q.aiAnswers).map(([model, answer]) => (
-                                                                <div key={model} style={{ marginTop: '4px', padding: '4px', background: '#fff', borderRadius: '4px' }}>
-                                                                    <span style={{ fontWeight: 'bold', color: getModelColor(model) }}>{getModelNickname(model)}</span>
-                                                                    <span style={{ marginLeft: '8px', fontSize: '12px' }}>{answer}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </details>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* 参考答案 - 带编辑按钮 */}
-                                        <div style={{ background: '#fff7e6', padding: '10px', borderRadius: '6px' }}>
+                                    {/* 四栏对比 - 参考答案 vs 我的答案 vs 同学答案 vs 讨论记录 */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '10px', marginTop: '12px' }}>
+                                        {/* 参考答案（试卷原答案） */}
+                                        <div style={{ background: '#fff7e6', padding: '10px', borderRadius: '6px', border: '2px solid #fa8c16' }}>
                                             <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#fa8c16', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <span>📖 参考答案</span>
                                                 <button
                                                     onClick={() => {
                                                         const currentAnswers = q.sourceAnswer || '';
                                                         const newAnswer = window.prompt(
-                                                            '请用【空格】分隔每个答案\n\n示例：虽与日月争光可也 纵一苇之所如 赤壁赋 万里悲秋常作客 百年多病独登台\n\n注意：答案内部请不要包含空格\n\n当前答案：',
+                                                            '请输入原试卷答案',
                                                             currentAnswers
                                                         );
                                                         if (newAnswer !== null && newAnswer.trim()) {
                                                             updateQuestion(q.id, 'sourceAnswer', newAnswer.trim());
-                                                            alert('答案已修正，请点击「保存到答案库」更新数据库');
                                                         }
                                                     }}
                                                     style={{
@@ -1626,20 +1593,114 @@ function DataImport() {
                                                         fontSize: '11px'
                                                     }}
                                                 >
-                                                    ✏️ 修正
+                                                    ✏️
                                                 </button>
                                             </div>
-                                            <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>
-                                                {q.sourceAnswer || '暂无'}
+                                            <div style={{ fontSize: '13px', wordBreak: 'break-all', minHeight: '40px', padding: '6px', background: '#fff', borderRadius: '4px' }}>
+                                                {q.sourceAnswer || '🔲 暂无'}
                                             </div>
+                                            <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>原始试卷答案</div>
+                                        </div>
+
+                                        {/* 我的答案（讨论后确定） */}
+                                        <div style={{ background: '#e6f7ff', padding: '10px', borderRadius: '6px', border: '2px solid #1890ff' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#1890ff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span>✅ 我的答案</span>
+                                                <button
+                                                    onClick={() => {
+                                                        const current = q.finalAnswer || '';
+                                                        const newAnswer = window.prompt(
+                                                            '讨论后确定的答案（有效答案）',
+                                                            current
+                                                        );
+                                                        if (newAnswer !== null && newAnswer.trim()) {
+                                                            updateQuestion(q.id, 'finalAnswer', newAnswer.trim());
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        padding: '2px 8px',
+                                                        background: '#1890ff',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '11px'
+                                                    }}
+                                                >
+                                                    ✏️
+                                                </button>
+                                            </div>
+                                            <div style={{ fontSize: '13px', wordBreak: 'break-all', minHeight: '40px', padding: '6px', background: '#fff', borderRadius: '4px' }}>
+                                                {q.finalAnswer || '🔲 讨论中'}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>讨论后决定的答案</div>
+                                        </div>
+
+                                        {/* 同学的答案（AI建议） */}
+                                        <div style={{ background: '#f6ffed', padding: '10px', borderRadius: '6px', border: '2px solid #52c41a' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#52c41a' }}>
+                                                👨‍🎓 同学的答案
+                                            </div>
+                                            <div style={{ maxHeight: '100px', overflow: 'auto', fontSize: '12px', wordBreak: 'break-all', padding: '6px', background: '#fff', borderRadius: '4px' }}>
+                                                {q.aiAnswers && Object.keys(q.aiAnswers).length > 0 ? (
+                                                    <div>
+                                                        {Object.entries(q.aiAnswers).map(([model, answer], idx) => (
+                                                            <div key={model} style={{ marginBottom: idx < Object.keys(q.aiAnswers).length - 1 ? '6px' : 0, paddingBottom: '4px', borderBottom: idx < Object.keys(q.aiAnswers).length - 1 ? '1px solid #eee' : 'none' }}>
+                                                                <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
+                                                                    {getModelNickname(model)}
+                                                                </span>
+                                                                <div style={{ fontSize: '11px', marginTop: '2px' }}>
+                                                                    {answer}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    '🔲 暂无'
+                                                )}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>多个AI的答案</div>
+                                        </div>
+
+                                        {/* 讨论记录 */}
+                                        <div style={{ background: '#fff0f6', padding: '10px', borderRadius: '6px', border: '2px solid #eb2f96' }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: '#eb2f96', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span>💬 讨论记录</span>
+                                                <button
+                                                    onClick={() => {
+                                                        const current = q.discussion || '';
+                                                        const newNote = window.prompt(
+                                                            '记录讨论要点或决策理由',
+                                                            current
+                                                        );
+                                                        if (newNote !== null && newNote.trim()) {
+                                                            updateQuestion(q.id, 'discussion', newNote.trim());
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        padding: '2px 8px',
+                                                        background: '#eb2f96',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '11px'
+                                                    }}
+                                                >
+                                                    ✏️
+                                                </button>
+                                            </div>
+                                            <div style={{ fontSize: '12px', wordBreak: 'break-all', minHeight: '40px', padding: '6px', background: '#fff', borderRadius: '4px', color: '#666', fontStyle: q.discussion ? 'normal' : 'italic' }}>
+                                                {q.discussion || '暂无记录'}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#999', marginTop: '6px' }}>记录决策过程</div>
                                         </div>
                                     </div>
 
-                                    {/* 投票结果提示 */}
-                                    {q.verdict && (
-                                        <div style={{ marginTop: '8px', fontSize: '12px', textAlign: 'center', color: '#666' }}>
-                                            {q.verdict === 'correct' ? '✅ 同学们看法一致' : 
-                                             q.verdict === 'maybe_correct' ? '⚠️ 同学们有不同看法' : '❌ 同学们看法不一致，建议问老师'}
+                                    {/* 答案验证提示 */}
+                                    {q.sourceAnswer && q.sourceAnswer.trim() && !q.finalAnswer && (
+                                        <div style={{ marginTop: '8px', padding: '8px', background: '#fff7e6', borderRadius: '4px', fontSize: '12px', color: '#ff9800' }}>
+                                            ⚠️ 【参考答案】已有，请先讨论确认后填入【我的答案】
                                         </div>
                                     )}
                                 </div>

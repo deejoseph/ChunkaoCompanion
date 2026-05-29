@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 >nul
 title 春考伴学 - 启动服务
 
@@ -26,27 +27,29 @@ if not exist "frontend\node_modules" (
 )
 
 :: 启动 Whisper Worker（精准模式语音识别）
-echo [1/4] 启动 Whisper Worker...
-start "春考伴学-Whisper" cmd /k "cd backend && echo Whisper Worker 启动中... && node services/whisperWorker.js"
+echo Step 1 - Starting Whisper Worker...
+start "Whisper" cmd /k "cd /d backend && node services/whisperWorker.js"
 
 timeout /t 2 >nul
 
 :: 启动后端
-echo [2/4] 启动后端服务 (http://localhost:3001)...
-start "春考伴学-后端" cmd /k "cd backend && echo 后端服务启动中... && node app.js"
+echo Step 2 - Starting Backend Service on port 3001...
+start "Backend" cmd /k "cd /d backend && node app.js"
 
 timeout /t 2 >nul
 
 :: 启动前端
-echo [3/4] 启动前端服务 (http://localhost:3000)...
-start "春考伴学-前端" cmd /k "cd frontend && echo 前端服务启动中... && npm run dev"
+echo Step 3 - Starting Frontend Service on port 3000...
+start "Frontend" cmd /k "cd /d frontend && npm run dev"
+
+timeout /t 2 >nul
 
 :: 启动 Ollama（如果未运行）
-echo [4/4] 检查 Ollama 服务...
-curl -s http://localhost:11434 >nul 2>&1
+echo Step 4 - Checking Ollama Service...
+tasklist /fi "imagename eq Ollama.exe" | find /i "Ollama" >nul 2>&1
 if errorlevel 1 (
-    echo Ollama 服务未运行，正在尝试启动...
-    start "" "C:\Users\%USERNAME%\AppData\Local\Programs\Ollama\Ollama.exe"
+    echo Ollama service not running, starting it...
+    start "Ollama" "C:\Users\%USERNAME%\AppData\Local\Programs\Ollama\Ollama.exe"
 )
 
 echo.
@@ -59,3 +62,4 @@ echo ========================================
 echo.
 echo 按任意键退出（服务将继续运行）
 pause >nul
+endlocal

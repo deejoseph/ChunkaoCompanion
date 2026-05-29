@@ -69,7 +69,7 @@ function App() {
         { value: 'qwen2.5:7b', label: '快速模式：qwen2.5:7b（5-15秒，通用快速）', description: '适合中等难度题目' },
         { value: 'qwen2-math:7b', label: '标准模式：qwen2-math:7b（15-30秒，数学专项）', description: '适合数学难题、公式推导' },
         { value: 'qwen2.5:14b', label: '专业模式：qwen2.5:14b（20-40秒，大参数推理）', description: '适合压轴题、证明题' },
-        { value: 'qwen2.5-coder:7b', label: '参考模式：qwen2.5-coder:7b（30-60秒，LaTeX美观）', description: '适合需要规范输出公式的场景' }
+        { value: 'qwen2.5-coder-fast', label: '参考模式：qwen2.5-coder-fast（30-60秒，LaTeX美观）', description: '適合需要规范输出公式的场景' }
       ],
       defaultModel: 'qwen2-math:7b'
     },
@@ -96,7 +96,7 @@ function App() {
         { value: 'gemma3:4b', label: '快速模式：gemma3:4b（5-15秒，英语专用）', description: '适合基础语法、词汇' },
         { value: 'qwen2.5:7b', label: '标准模式：qwen2.5:7b（5-15秒，通用能力）', description: '适合中等难度阅读' },
         { value: 'qwen2.5:14b', label: '专业模式：qwen2.5:14b（20-40秒，阅读/写作）', description: '适合长难句分析、作文批改' },
-        { value: 'qwen2.5-coder:7b', label: '参考模式：qwen2.5-coder:7b（30-60秒，翻译优化）', description: '适合中英互译、长难句解析' }
+        { value: 'qwen2.5-coder-fast', label: '参考模式：qwen2.5-coder-fast（30-60秒，翻译优化）', description: '適合中英互译、長難句解析' }
       ],
       defaultModel: 'gemma3:4b'
     }
@@ -462,11 +462,26 @@ function App() {
                                         适合难题，响应慢但效果好，需要 8GB+ 显存
                                     </div>
                                     <div style={{ fontSize: '11px', color: '#ff9800', marginTop: '8px', padding: '6px', background: '#fff7e6', borderRadius: '6px' }}>
-                                        💡 提示：请先运行 ollama.bat 启动服务
+                                        💡 提示：首次点击按钮会自动启动 qwen3.6:27b 模型（需要 8GB+ 显存）
                                     </div>
                                 </div>
                                 <button
-                                    onClick={() => window.open('http://127.0.0.1:8080', '_blank')}
+                                    onClick={async () => {
+                                        try {
+                                            const response = await fetch('http://localhost:3001/api/ai/start-super-ai', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' }
+                                            });
+                                            const result = await response.json();
+                                            if (result.success) {
+                                                alert(`✅ ${result.message}\n\n📌 ${result.note}`);
+                                            } else {
+                                                alert(`❌ 启动失败：${result.error}`);
+                                            }
+                                        } catch (error) {
+                                            alert(`❌ 启动失败：${error.message}`);
+                                        }
+                                    }}
                                     style={{
                                         padding: '8px 20px',
                                         background: '#52c41a',

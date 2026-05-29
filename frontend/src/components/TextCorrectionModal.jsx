@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function TextCorrectionModal({ 
     isOpen, 
@@ -22,6 +22,11 @@ function TextCorrectionModal({
     const [analysisMarker, setAnalysisMarker] = useState(defaultAnalysisMarker);
     const [questionPattern, setQuestionPattern] = useState(defaultQuestionPattern);
     
+    // 撤销/重做历史管理
+    const [history, setHistory] = useState([safeInitialText]);
+    const [historyIndex, setHistoryIndex] = useState(0);
+    const textareaRef = useRef(null);
+    
     // 自动保存相关状态
     const [autoSaveTime, setAutoSaveTime] = useState(null);
     const [cursorPosition, setCursorPosition] = useState(0);
@@ -32,6 +37,90 @@ function TextCorrectionModal({
     const answerMarkers = ['【答案】', '【参考答案】', '答案：', '参考答案：'];
     const analysisMarkers = ['【解析】', '【详解】', '【常规讲解】', '解析：', '详解：'];
     const questionPatterns = ['练习', '\\d+[．、.]', '【题目】'];
+
+    // 添加到历史记录
+    const addToHistory = (text) => {
+        // 如果不是最新状态，删除后续的历史
+        if (historyIndex < history.length - 1) {
+            setHistory(history.slice(0, historyIndex + 1));
+        }
+        const newHistory = [...history, text];
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+    };
+
+    // 撤销
+    const handleUndo = () => {
+        if (historyIndex > 0) {
+            const newIndex = historyIndex - 1;
+            setHistoryIndex(newIndex);
+            setEditedText(history[newIndex]);
+        }
+    };
+
+    // 重做
+    const handleRedo = () => {
+        if (historyIndex < history.length - 1) {
+            const newIndex = historyIndex + 1;
+            setHistoryIndex(newIndex);
+            setEditedText(history[newIndex]);
+        }
+    };
+
+    // 处理文本变化
+    const handleTextChange = (e) => {
+        const newText = e.target.value;
+        setEditedText(newText);
+        // 只有当长度差异较大或者内容明显变化时才添加到历史
+        // 避免每个字符都添加一条历史
+        if (Math.abs(newText.length - history[historyIndex].length) > 5 || 
+            (newText.length === 0 || history[historyIndex].length === 0)) {
+            // 使用防抖避免频繁添加历史
+        }
+    };
+
+    // 防抖的历史记录
+    useEffect(() => {
+        if (!isOpen || editedText === history[historyIndex]) return;
+        
+        const timer = setTimeout(() => {
+            if (editedText !== history[historyIndex]) {
+                addToHistory(editedText);
+            }
+        }, 500); // 500ms 后保存历史
+        
+        return () => clearTimeout(timer);
+    }, [editedText, isOpen]);
+
+    // 快捷键处理
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (!isOpen || !textareaRef.current) return;
+            
+            // 检查是否是在 textarea 中
+            if (document.activeElement !== textareaRef.current) return;
+
+            // Ctrl+Z 或 Cmd+Z - 撤销
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                handleUndo();
+                return;
+            }
+
+            // Ctrl+Y 或 Ctrl+Shift+Z 或 Cmd+Shift+Z - 重做
+            if (((e.ctrlKey || e.metaKey) && e.key === 'y') || 
+                ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+                e.preventDefault();
+                handleRedo();
+                return;
+            }
+
+            // 注：Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V 浏览器原生支持，无需处理
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, historyIndex, history]);
 
     // 保存草稿
     const saveDraft = (text, markerAns, markerAna, pattern, showMsg = false) => {
@@ -65,6 +154,8 @@ function TextCorrectionModal({
                     );
                     if (confirmLoad) {
                         setEditedText(data.text);
+                        setHistory([data.text]);
+                        setHistoryIndex(0);
                         setAnswerMarker(data.answerMarker || defaultAnswerMarker);
                         setAnalysisMarker(data.analysisMarker || defaultAnalysisMarker);
                         setQuestionPattern(data.questionPattern || defaultQuestionPattern);
@@ -222,6 +313,8 @@ function TextCorrectionModal({
         const newText = typeof initialText === 'string' ? initialText : '';
         if (window.confirm('确定重置为原始文本吗？这将清除未保存的草稿。')) {
             setEditedText(newText);
+            setHistory([newText]);
+            setHistoryIndex(0);
             clearDraft();
         }
     };
@@ -322,7 +415,39 @@ function TextCorrectionModal({
                     <div style={{ flex: 2, padding: '16px', overflow: 'auto', borderRight: '1px solid #eee' }}>
                         <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                             <span>📄 原始提取文本（可直接编辑）</span>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                <button 
+                                    onClick={handleUndo}
+                                    disabled={historyIndex <= 0}
+                                    style={{ 
+                                        padding: '4px 12px', 
+                                        background: historyIndex <= 0 ? '#ccc' : '#722ed1', 
+                                        color: 'white', 
+                                        border: 'none', 
+                                        borderRadius: '4px', 
+                                        cursor: historyIndex <= 0 ? 'not-allowed' : 'pointer', 
+                                        fontSize: '12px'
+                                    }}
+                                    title="撤销 (Ctrl+Z)"
+                                >
+                                    ↶ 撤销
+                                </button>
+                                <button 
+                                    onClick={handleRedo}
+                                    disabled={historyIndex >= history.length - 1}
+                                    style={{ 
+                                        padding: '4px 12px', 
+                                        background: historyIndex >= history.length - 1 ? '#ccc' : '#722ed1', 
+                                        color: 'white', 
+                                        border: 'none', 
+                                        borderRadius: '4px', 
+                                        cursor: historyIndex >= history.length - 1 ? 'not-allowed' : 'pointer', 
+                                        fontSize: '12px'
+                                    }}
+                                    title="重做 (Ctrl+Y)"
+                                >
+                                    ↷ 重做
+                                </button>
                                 <button 
                                     onClick={normalizeLineBreaks} 
                                     style={{ padding: '4px 12px', background: '#722ed1', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
@@ -334,9 +459,10 @@ function TextCorrectionModal({
                             </div>
                         </div>
                         <textarea
+                            ref={textareaRef}
                             id="correction-textarea"
                             value={editedText}
-                            onChange={(e) => setEditedText(e.target.value)}
+                            onChange={handleTextChange}
                             onMouseUp={handleTextSelect}
                             onKeyUp={handleCursor}
                             onClick={handleCursor}
@@ -522,6 +648,15 @@ function TextCorrectionModal({
                                 <li>关闭弹窗后重新打开，可恢复草稿</li>
                                 <li>确认后点击「确认解析」继续</li>
                             </ol>
+                            <strong style={{ marginTop: '12px', display: 'block' }}>⌨️ 快捷键：</strong>
+                            <ul style={{ margin: '8px 0 0 20px', lineHeight: '1.6' }}>
+                                <li><code>Ctrl+Z</code> - 撤销</li>
+                                <li><code>Ctrl+Y</code> 或 <code>Ctrl+Shift+Z</code> - 重做</li>
+                                <li><code>Ctrl+A</code> - 全选</li>
+                                <li><code>Ctrl+C</code> - 复制</li>
+                                <li><code>Ctrl+X</code> - 剪切</li>
+                                <li><code>Ctrl+V</code> - 粘贴</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -542,6 +677,9 @@ function TextCorrectionModal({
                                 💾 草稿 {getSaveTimeDisplay()}
                             </span>
                         )}
+                        <span style={{ marginLeft: '12px' }}>
+                            📜 编辑历史 {historyIndex + 1}/{history.length}
+                        </span>
                     </div>
                     <div style={{ display: 'flex', gap: '12px' }}>
                         <button onClick={onClose} style={{ padding: '8px 20px', background: '#f0f0f0', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>

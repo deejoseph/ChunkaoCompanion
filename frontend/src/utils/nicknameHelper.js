@@ -9,7 +9,7 @@ const DEFAULT_NICKNAMES = {
         'qwen2.5:7b': { nickname: '数学小助手', defaultLabel: '🚀 快速模式' },
         'qwen2-math:7b': { nickname: '数学博士', defaultLabel: '🎯 标准模式' },
         'qwen2.5:14b': { nickname: '数学教授', defaultLabel: '🏆 专业模式' },
-        'qwen2.5-coder:7b': { nickname: '公式大师', defaultLabel: '🎨 美观模式' }
+        'qwen2.5-coder-fast': { nickname: '公式大师', defaultLabel: '🎨 美观模式' }
     },
     // 语文学科
     chinese: {
@@ -17,14 +17,14 @@ const DEFAULT_NICKNAMES = {
         'qwen2.5:14b': { nickname: '语文老师', defaultLabel: '🏆 专业模式' },
         'glm4:9b': { nickname: '古文专家', defaultLabel: '📖 参考模式' },
         'gemma3:4b': { nickname: '文学青年', defaultLabel: '📝 标准模式' },
-        'qwen2.5-coder:7b': { nickname: '规范助手', defaultLabel: '📐 规范模式' }
+        'qwen2.5-coder-fast': { nickname: '规范助手', defaultLabel: '📐 规范模式' }
     },
     // 英语学科
     english: {
         'qwen2.5:7b': { nickname: '英语课代表', defaultLabel: '🚀 快速模式' },
         'qwen2.5:14b': { nickname: '外教老师', defaultLabel: '🏆 专业模式' },
         'gemma3:4b': { nickname: '口语伙伴', defaultLabel: '🎙️ 快速模式' },
-        'qwen2.5-coder:7b': { nickname: '翻译官', defaultLabel: '🌍 参考模式' }
+        'qwen2.5-coder-fast': { nickname: '翻译官', defaultLabel: '🌍 参考模式' }
     }
 };
 
