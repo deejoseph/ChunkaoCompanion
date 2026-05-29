@@ -95,28 +95,47 @@ function InternationalCourses() {
         }));
     };
 
-    // 选择视频 - 添加 key 强制重新渲染
-    const selectVideo = (courseId, filePath, fileName) => {
-        console.log('选择视频:', filePath);
+    // 通用文件选择（支持视频和 PDF）
+    const selectFile = (courseId, filePath, fileName, fileType) => {
+        console.log('选择文件:', { filePath, fileName, fileType });
         
-        // 清空旧视频状态
-        setVideoUrl('');
-        setSubtitleUrl('');
-        setSelectedVideo(null);
-        
-        // 使用 setTimeout 确保状态清空后再设置新视频
-        setTimeout(() => {
-            const url = `${API_BASE}/api/international/file/${courseId}/${encodeURIComponent(filePath)}`;
-            const subtitlePath = filePath.replace(/\.(mp4)$/i, '.srt');
-            const subUrl = `${API_BASE}/api/international/subtitle/${courseId}/${encodeURIComponent(subtitlePath)}`;
+        if (fileType === 'video') {
+            // 处理视频
+            setVideoUrl('');
+            setSubtitleUrl('');
+            setSelectedVideo(null);
             
-            setSelectedVideo({ path: filePath, name: fileName });
-            setVideoUrl(url);
-            setSubtitleUrl(subUrl);
+            // 🔥 关键修复：对于托福/雅思课程，不清除固定讲义 PDF
+            // 只有 AP 课程才清除临时 PDF（因为 AP 没有固定讲义）
+            if (selectedCourse && isAPCourse(selectedCourse)) {
+                setCoursePdfUrl('');
+            }
+            // 注意：托福/雅思的固定讲义会保留，不执行 setCoursePdfUrl('')
             
-            console.log('视频URL:', url);
-            console.log('VTT字幕URL:', subUrl);
-        }, 50);
+            setTimeout(() => {
+                const url = `${API_BASE}/api/international/file/${courseId}/${encodeURIComponent(filePath)}`;
+                const subtitlePath = filePath.replace(/\.(mp4)$/i, '.srt');
+                const subUrl = `${API_BASE}/api/international/subtitle/${courseId}/${encodeURIComponent(subtitlePath)}`;
+                
+                setSelectedVideo({ path: filePath, name: fileName });
+                setVideoUrl(url);
+                setSubtitleUrl(subUrl);
+                
+                console.log('视频URL:', url);
+                console.log('VTT字幕URL:', subUrl);
+            }, 50);
+        } else if (fileType === 'pdf') {
+            // 处理 PDF 文件
+            setVideoUrl('');
+            setSubtitleUrl('');
+            setSelectedVideo(null);
+            const pdfUrl = `${API_BASE}/api/international/file/${courseId}/${encodeURIComponent(filePath)}`;
+            setCoursePdfUrl(pdfUrl);
+            console.log('PDF URL:', pdfUrl);
+        } else {
+            // 其他类型文件直接下载或打开
+            window.open(`${API_BASE}/api/international/file/${courseId}/${encodeURIComponent(filePath)}`, '_blank');
+        }
     };
 
     const downloadVideo = () => {
@@ -125,24 +144,41 @@ function InternationalCourses() {
         window.open(url, '_blank');
     };
 
-    const filterVideoOnly = (items) => {
-        if (!items) return [];
-        return items.filter(item => {
-            if (item.type === 'folder') return true;
-            return item.fileType === 'video';
-        }).map(item => {
-            if (item.type === 'folder' && item.children) {
-                return { ...item, children: filterVideoOnly(item.children) };
-            }
-            return item;
-        });
+    // 判断是否为 AP 课程
+    const isAPCourse = (course) => {
+        return course && (course.id === '26年AP巴朗教辅书' || course.name.includes('AP'));
     };
 
-    const renderTree = (items, courseId, level = 0) => {
+    // 过滤文件列表（AP 课程显示所有文件，非 AP 只显示视频和文件夹）
+    const filterItems = (items, course) => {
+        if (!items) return [];
+        if (isAPCourse(course)) {
+            // AP 课程：返回所有项目（文件夹和文件）
+            return items.map(item => {
+                if (item.type === 'folder' && item.children) {
+                    return { ...item, children: filterItems(item.children, course) };
+                }
+                return item;
+            });
+        } else {
+            // 原有逻辑：只保留文件夹和视频
+            return items.filter(item => {
+                if (item.type === 'folder') return true;
+                return item.fileType === 'video';
+            }).map(item => {
+                if (item.type === 'folder' && item.children) {
+                    return { ...item, children: filterItems(item.children, course) };
+                }
+                return item;
+            });
+        }
+    };
+
+    const renderTree = (items, courseId, course, level = 0) => {
         if (!items) return null;
-        const videoOnlyItems = filterVideoOnly(items);
+        const filteredItems = filterItems(items, course);
         
-        return videoOnlyItems.map((item, idx) => {
+        return filteredItems.map((item, idx) => {
             const indent = level * 16;
             
             if (item.type === 'folder') {
@@ -170,17 +206,36 @@ function InternationalCourses() {
                         </div>
                         {isExpanded && item.children && (
                             <div>
-                                {renderTree(item.children, courseId, level + 1)}
+                                {renderTree(item.children, courseId, course, level + 1)}
                             </div>
                         )}
                     </div>
                 );
-            } else if (item.fileType === 'video') {
-                const isSelected = selectedVideo?.path === item.path;
+            } else {
+                // 文件节点
+                let icon = '📄';
+                let fileTypeDisplay = '';
+                if (item.fileType === 'video') {
+                    icon = '🎬';
+                    fileTypeDisplay = '视频';
+                } else if (item.fileType === 'pdf') {
+                    icon = '📖';
+                    fileTypeDisplay = 'PDF';
+                } else if (item.fileType === 'document') {
+                    icon = '📝';
+                    fileTypeDisplay = '文档';
+                } else {
+                    icon = '📄';
+                    fileTypeDisplay = '文件';
+                }
+                
+                const isSelected = (item.fileType === 'video' && selectedVideo?.path === item.path) ||
+                                   (item.fileType === 'pdf' && coursePdfUrl?.includes(encodeURIComponent(item.path)));
+                
                 return (
                     <div
                         key={item.path}
-                        onClick={() => selectVideo(courseId, item.path, item.name)}
+                        onClick={() => selectFile(courseId, item.path, item.name, item.fileType)}
                         style={{
                             padding: '6px 8px',
                             paddingLeft: `${24 + indent}px`,
@@ -203,15 +258,14 @@ function InternationalCourses() {
                             }
                         }}
                     >
-                        <span>🎬</span>
+                        <span>{icon}</span>
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
                             {item.name}
                         </span>
-                        <span style={{ fontSize: '10px', color: '#52c41a' }}>▶</span>
+                        <span style={{ fontSize: '10px', color: '#52c41a' }}>{fileTypeDisplay}</span>
                     </div>
                 );
             }
-            return null;
         });
     };
 
@@ -251,7 +305,7 @@ function InternationalCourses() {
                         <div style={{ marginBottom: '20px' }}>
                             <h3 style={{ margin: 0, marginBottom: '8px' }}>🌍 国际课程</h3>
                             <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
-                                加州大学 · 托福/雅思备考
+                                加州大学 · 托福/雅思/AP 备考
                             </p>
                         </div>
 
@@ -280,7 +334,7 @@ function InternationalCourses() {
                                     
                                     {selectedCourse?.id === course.id && courseStructure && (
                                         <div style={{ marginLeft: '0px', borderLeft: 'none', paddingLeft: '0' }}>
-                                            {renderTree(courseStructure, course.id)}
+                                            {renderTree(courseStructure, course.id, course)}
                                         </div>
                                     )}
                                 </div>
@@ -316,8 +370,8 @@ function InternationalCourses() {
                 {!selectedCourse ? (
                     <div style={{ textAlign: 'center', padding: '100px', color: '#999' }}>
                         <div style={{ fontSize: '64px', marginBottom: '16px' }}>🌍</div>
-                        <div style={{ fontSize: '18px', marginBottom: '8px' }}>加州大学国际课程</div>
-                        <div style={{ fontSize: '14px' }}>托福 · 雅思备考专项</div>
+                        <div style={{ fontSize: '18px', marginBottom: '8px' }}>国际课程</div>
+                        <div style={{ fontSize: '14px' }}>托福 · 雅思 · AP 备考</div>
                         <div style={{ fontSize: '12px', marginTop: '16px', color: '#bbb' }}>从左侧选择一个课程开始学习</div>
                     </div>
                 ) : (
@@ -339,7 +393,7 @@ function InternationalCourses() {
                             </div>
                         )}
 
-                        {/* 课程讲义 PDF - 始终显示在视频下方（只要 coursePdfUrl 存在） */}
+                        {/* 课程讲义 PDF（固定讲义或用户点击的 PDF） */}
                         {coursePdfUrl && (
                             <div style={{ marginBottom: '20px' }}>
                                 <div style={{
@@ -354,11 +408,14 @@ function InternationalCourses() {
                                     flexWrap: 'wrap',
                                     gap: '8px'
                                 }}>
-                                    <span><strong>📘 课程讲义</strong><span style={{ fontSize: '12px', color: '#666', marginLeft: '12px' }}>加州大学官方备考资料</span></span>
-                                    <a href={coursePdfUrl} download style={{ padding: '4px 12px', background: '#52c41a', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '12px' }}>📥 下载PDF</a>
+                                    <span><strong>📘 文档预览</strong><span style={{ fontSize: '12px', color: '#666', marginLeft: '12px' }}>
+                                        {selectedCourse?.name} 资料
+                                    </span></span>
+                                    <a href={coursePdfUrl} download style={{ padding: '4px 12px', background: '#52c41a', color: 'white', textDecoration: 'none', borderRadius: '4px', fontSize: '12px' }}>📥 下载文件</a>
                                 </div>
-                                <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', overflow: 'hidden', background: '#fafafa', height: '60vh' }}>
-                                    <iframe src={coursePdfUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="课程讲义" />
+                                {/* 🔥 修复 PDF 预览高度：从 60vh 改为 80vh */}
+                                <div style={{ border: '1px solid #e8e8e8', borderRadius: '8px', overflow: 'hidden', background: '#fafafa', height: '80vh' }}>
+                                    <iframe src={coursePdfUrl} style={{ width: '100%', height: '100%', border: 'none' }} title="文档预览" />
                                 </div>
                             </div>
                         )}
@@ -367,8 +424,8 @@ function InternationalCourses() {
                         {!videoUrl && !coursePdfUrl && (
                             <div style={{ textAlign: 'center', padding: '60px', color: '#999' }}>
                                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>📚</div>
-                                <div>从左侧目录选择视频开始学习</div>
-                                <div style={{ fontSize: '13px', marginTop: '8px' }}>包含视频课程和配套讲义</div>
+                                <div>从左侧目录选择视频或 PDF 开始学习</div>
+                                <div style={{ fontSize: '13px', marginTop: '8px' }}>AP 课程包含巴朗教辅 PDF 文件</div>
                             </div>
                         )}
                     </div>

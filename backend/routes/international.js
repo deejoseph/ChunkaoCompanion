@@ -7,6 +7,13 @@ const router = express.Router();
 // 国际课程根目录
 const INTERNATIONAL_BASE = path.join(__dirname, '../../data/International');
 
+// 课程显示名称映射（可让目录名与显示名不同）
+const COURSE_NAME_MAP = {
+  '托福': '托福备考',
+  '雅思': '雅思备考',
+  '26年AP巴朗教辅书': 'AP 课程（巴朗教辅）',
+};
+
 // 获取课程列表
 router.get('/courses', (req, res) => {
     console.log('获取课程列表，目录:', INTERNATIONAL_BASE);
@@ -25,7 +32,7 @@ router.get('/courses', (req, res) => {
             if (fs.statSync(itemPath).isDirectory()) {
                 courses.push({
                     id: item,
-                    name: item,
+                    name: COURSE_NAME_MAP[item] || item,  // 使用映射名称
                     path: item
                 });
             }
@@ -134,7 +141,7 @@ router.get('/root-file/:filename', (req, res) => {
     res.sendFile(fullPath);
 });
 
-// 获取课程内文件（视频、字幕等）
+// 获取课程内文件（视频、字幕、PDF等）
 router.get(/^\/file\/([^\/]+)\/(.+)$/, (req, res) => {
     const courseId = decodeURIComponent(req.params[0]);
     const filePath = decodeURIComponent(req.params[1]);
@@ -170,7 +177,7 @@ router.get(/^\/file\/([^\/]+)\/(.+)$/, (req, res) => {
     res.sendFile(fullPath);
 });
 
-// 预览文档（docx 转 HTML）
+// 预览文档（docx 转 HTML 或返回 PDF URL）
 router.get(/^\/preview\/([^\/]+)\/(.+)$/, async (req, res) => {
     const courseId = decodeURIComponent(req.params[0]);
     const filePath = decodeURIComponent(req.params[1]);
