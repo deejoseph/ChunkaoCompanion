@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import TextCorrectionModal from './TextCorrectionModal';
+import TextEditorWithShortcuts from './DataImport/TextEditorWithShortcuts';
+import AnswerEditor from './DataImport/AnswerEditor';
 import {
     detectQuestionType,
     detectSpecificQuestionType,
@@ -12,6 +14,7 @@ import {
 } from './DataImport/dataImportUtils';
 
 function DataImport() {
+    const [collectionMode, setCollectionMode] = useState('question');
     const [subject, setSubject] = useState('chinese');
     const [customSubject, setCustomSubject] = useState('');
     const [version, setVersion] = useState('2026');
@@ -66,7 +69,16 @@ function DataImport() {
     const [detectedInfo, setDetectedInfo] = useState({ subject: '', questionType: '', specificType: '', typeLabel: '' });
     const [isBatchValidation, setIsBatchValidation] = useState(false);
     const [batchQuestions, setBatchQuestions] = useState([]);
-    const [batchCurrentIndex, setBatchCurrentIndex] = useState(0);   
+    const [batchCurrentIndex, setBatchCurrentIndex] = useState(0);
+    
+    // ========== 新增：答案编辑器弹窗 ==========
+    const [showAnswerEditor, setShowAnswerEditor] = useState(false);
+    const [editingAnswerQuestion, setEditingAnswerQuestion] = useState(null);
+    const [knowledgeFile, setKnowledgeFile] = useState(null);
+    const [knowledgePageRange, setKnowledgePageRange] = useState({ start: 1, end: 1 });
+    const [knowledgeRawText, setKnowledgeRawText] = useState('');
+    const [knowledgeJsonDraft, setKnowledgeJsonDraft] = useState('');
+    const [knowledgeLoading, setKnowledgeLoading] = useState(false);
 
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
@@ -133,6 +145,23 @@ function DataImport() {
         return subjectNames[actualSubject] || actualSubject;
     };
 
+    const getPreferredKnowledgeModel = () => {
+        const actualSubject = getActualSubject();
+        if (actualSubject === 'math') {
+            return localStorage.getItem('math_model_pro') || 'qwen2.5:14b';
+        }
+        if (actualSubject === 'english') {
+            return localStorage.getItem('english_model_pro') || 'qwen2.5:14b';
+        }
+        return localStorage.getItem('chinese_model_pro') || 'qwen2.5:14b';
+    };
+
+    const extractJsonBlock = (text) => {
+        const value = String(text || '').trim();
+        const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        return (fenced ? fenced[1] : value).trim();
+    };
+
     const getValidationModels = () => {
         const actualSubject = getActualSubject();
         if (actualSubject === 'chinese') {
@@ -183,6 +212,192 @@ function DataImport() {
             }
         } catch (error) {
             console.error('加载题库列表失败:', error);
+        }
+    };
+
+    const renderModeSwitcher = () => (
+        <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginBottom: '20px',
+            background: '#f5f5f5',
+            padding: '8px',
+            borderRadius: '8px',
+            width: 'fit-content'
+        }}>
+            <button
+                onClick={() => setCollectionMode('knowledge')}
+                style={{
+                    padding: '8px 16px',
+                    background: collectionMode === 'knowledge' ? '#1890ff' : 'white',
+                    color: collectionMode === 'knowledge' ? 'white' : '#333',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                }}
+            >
+                知识点采集
+            </button>
+            <button
+                onClick={() => setCollectionMode('question')}
+                style={{
+                    padding: '8px 16px',
+                    background: collectionMode === 'question' ? '#1890ff' : 'white',
+                    color: collectionMode === 'question' ? 'white' : '#333',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                }}
+            >
+                题库采集
+            </button>
+        </div>
+    );
+
+    const extractKnowledgeText = async () => {
+        if (!knowledgeFile) {
+            alert('请先选择知识点资料文件');
+            return;
+        }
+
+        setKnowledgeLoading(true);
+        const formData = new FormData();
+        formData.append('file', knowledgeFile);
+        formData.append('pageStart', knowledgePageRange.start);
+        formData.append('pageEnd', knowledgePageRange.end);
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/docs/extract-raw', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (response.data.success) {
+                const text = response.data.text || '';
+                setKnowledgeRawText(text);
+                alert(`已提取 ${text.length} 字符，可继续生成知识点 JSON 草稿。`);
+            } else {
+                alert('提取失败');
+            }
+        } catch (error) {
+            console.error('知识点资料提取失败:', error);
+            alert('提取失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setKnowledgeLoading(false);
+        }
+    };
+
+    const generateKnowledgeJson = async () => {
+        if (!knowledgeRawText.trim()) {
+            alert('请先抽取资料文本');
+            return;
+        }
+
+        const prompt = `你是上海春考${getSubjectLabel()}资料整理老师。请阅读下面资料，归纳知识点、考点、历史数据、命题分析，并只输出合法 JSON，不要输出 Markdown 解释。
+
+重要要求：
+1. 必须完整提取资料中的“年份/分值/考点/篇目”表格，逐行写入 examHistory，不要只抽样。
+2. 必须完整提取“春考考查篇目”清单，按册别分组写入 requiredTexts，不要遗漏篇目、作者、朝代。
+3. 必须保留资料中提到的高频篇目、易错字词、直接默写、情景默写、文学常识、文化常识等考点。
+4. 如果出现“考点一/考点二/考点三”以及其下的“1./2./3.”编号小点，必须保留层级：
+   - “考点一 直接默写”作为 knowledgePoints 的一项；
+   - 其下“注意生僻难写易混易错字”“注意同音异义词”“注意形似词、同义异形词”必须逐条写入 subPoints；
+   - “考点二 情景默写”下的“注意审清题干”“注意对句子的理解”“注意牢固掌握名篇中的名句”“注意情感相似、手法相似、观点相似相异的句子”也必须逐条写入 subPoints。
+5. 不要只把编号小点合并成 examFocus；subPoints 必须保存讲解、典例、答案、易错字词、高频句等细节。
+6. 如果资料中某项信息没有出现，用空数组或 null，不要编造。
+7. 输出必须是一个可被 JSON.parse 解析的 JSON 对象。
+8. 输出前自检：资料中每个“考点”下有几个编号小点，JSON 中对应 knowledgePoint.subPoints 就必须有几个条目。
+
+JSON 结构如下：
+{
+  "subject": "${getActualSubject()}",
+  "version": "${getActualVersion()}",
+  "topicTitle": "${topicName || ''}",
+  "sourceFile": "${knowledgeFile?.name || ''}",
+  "examHistory": [
+    {
+      "year": 2025,
+      "score": 5,
+      "questionType": "填空",
+      "examPoint": "识记默写·作家作品",
+      "texts": ["《论语》", "《阿房宫赋》", "《梦游天姥吟留别》"],
+      "note": "来自命题分析表"
+    }
+  ],
+  "requiredTexts": [
+    {
+      "book": "必修上册",
+      "count": 8,
+      "items": [
+        { "title": "《登高》", "author": "杜甫", "dynasty": "唐", "note": "" }
+      ]
+    }
+  ],
+  "knowledgePoints": [
+    {
+      "name": "知识点名称",
+      "category": "知识大类",
+      "description": "一句话说明",
+      "examFocus": ["常考角度1", "常考角度2"],
+      "subPoints": [
+        {
+          "name": "子考点名称，例如注意生僻难写易混易错字",
+          "explanation": "资料中的讲解摘要",
+          "examples": [
+            {
+              "sourceText": "例题涉及的篇目或题干",
+              "question": "题干或考查句",
+              "answer": "答案，若资料提供",
+              "analysis": "资料中的说明或解题提醒"
+            }
+          ],
+          "commonErrors": ["谗谄", "蔽明"],
+          "highFrequencySentences": ["信而见疑，忠而被谤，能无怨乎？"],
+          "evidence": [
+            { "page": null, "text": "资料中的原文依据" }
+          ]
+        }
+      ],
+      "history": [
+        { "year": 2024, "questionNumber": "题号或空", "score": null, "note": "出现方式" }
+      ],
+      "evidence": [
+        { "page": null, "text": "资料中的关键依据或摘要" }
+      ]
+    }
+  ],
+  "examInsights": [
+    {
+      "title": "命题分析标题",
+      "summary": "分析内容",
+      "relatedKnowledgePoints": ["知识点名称"]
+    }
+  ],
+  "needsReview": ["需要人工确认的问题"]
+}
+
+资料文本：
+${knowledgeRawText.slice(0, 12000)}`;
+
+        setKnowledgeLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/ai/ask', {
+                subject: getActualSubject(),
+                question: prompt,
+                model: getPreferredKnowledgeModel(),
+                temperature: 0.1,
+                numPredict: 6144
+            });
+
+            if (response.data.success) {
+                setKnowledgeJsonDraft(extractJsonBlock(response.data.answer));
+            } else {
+                alert('生成失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('知识点 JSON 生成失败:', error);
+            alert('生成失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setKnowledgeLoading(false);
         }
     };
 
@@ -409,10 +624,13 @@ function DataImport() {
                     content: q.content,
                     answerFormat: '【答案】',
                     sourceAnswer: q.sourceAnswer || '',
+                    finalAnswer: '',
+                    myAnswer: '',
+                    peerAnswers: {},
                     aiAnswers: q.aiAnswers || {},
                     aiSuggestedAnswer: q.aiSuggestedAnswer || '',
                     verdict: q.verdict || null,
-                    finalAnswer: '',
+                    discussion: '',
                     analysis: q.analysis || ''
                 }));
 
@@ -478,7 +696,10 @@ function DataImport() {
                     aiAnswers: q.aiAnswers || {},
                     aiSuggestedAnswer: q.aiSuggestedAnswer || '',
                     verdict: q.verdict || null,
-                    finalAnswer: q.finalAnswer || '',
+                    finalAnswer: q.finalAnswer || q.myAnswer || '',
+                    myAnswer: q.myAnswer || '',
+                    peerAnswers: q.peerAnswers || {},
+                    discussion: q.discussion || '',
                     analysis: q.analysis || ''
                 })));
                 setEditingBank(bankId);
@@ -501,10 +722,12 @@ function DataImport() {
                 content: '',
                 answerFormat: '【答案】',
                 sourceAnswer: '',
+                finalAnswer: '',
+                myAnswer: '',
+                peerAnswers: {},
                 aiAnswers: {},
                 aiSuggestedAnswer: '',
                 verdict: null,
-                finalAnswer: '',
                 discussion: '',
                 analysis: ''
             }
@@ -772,11 +995,14 @@ function DataImport() {
                 type: q.type,
                 content: q.content,
                 sourceAnswer: q.sourceAnswer,
-                aiAnswers: q.aiAnswers,
+                myAnswer: q.myAnswer || q.finalAnswer || '',
+                peerAnswers: q.peerAnswers || q.aiAnswers || {},
+                aiAnswers: q.aiAnswers || {},
                 aiSuggestedAnswer: q.aiSuggestedAnswer || getAISuggestedAnswer(q.aiAnswers),
                 verdict: q.verdict,
                 finalAnswer: q.finalAnswer || '',
-                analysis: q.analysis
+                discussion: q.discussion || '',
+                analysis: q.analysis || ''
             }))
         };
 
@@ -807,10 +1033,13 @@ function DataImport() {
                 type: q.type,
                 content: q.content,
                 sourceAnswer: q.sourceAnswer,
-                aiAnswers: q.aiAnswers,
+                finalAnswer: q.finalAnswer || '',
+                myAnswer: q.finalAnswer || '',
+                peerAnswers: q.aiAnswers || {},
+                aiAnswers: q.aiAnswers || {},
+                discussion: q.discussion || '',
                 aiSuggestedAnswer: q.aiSuggestedAnswer || getAISuggestedAnswer(q.aiAnswers),
                 verdict: q.verdict,
-                finalAnswer: q.finalAnswer || '',
                 analysis: q.analysis
             }))
         };
@@ -1138,9 +1367,171 @@ function DataImport() {
     const allFinalAnswersFilled = questions.length > 0 && questions.every(q => q.finalAnswer && q.finalAnswer.trim() !== '');
     const emptyFinalCount = questions.filter(q => !q.finalAnswer || !q.finalAnswer.trim()).length;
 
+    const renderKnowledgeCollectionPanel = () => (
+        <div>
+            <div style={{
+                background: '#f0f7ff',
+                border: '1px solid #91d5ff',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginTop: 0 }}>知识点采集</h3>
+                <div style={{ color: '#555', lineHeight: 1.7 }}>
+                    本子模块用于从教材、考试分析、复习讲义中生成知识点 JSON 草稿。当前流程为：抽取资料文本 → AI 归纳 JSON → 人工校对；校对后的入库接口将在下一步接入。
+                </div>
+            </div>
+
+            <div style={{
+                background: '#f5f5f5',
+                padding: '20px',
+                borderRadius: '8px',
+                marginBottom: '20px'
+            }}>
+                <h3 style={{ marginTop: 0 }}>资料信息</h3>
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div>
+                        <label>学科：</label>
+                        <select value={subject} onChange={(e) => setSubject(e.target.value)}>
+                            <option value="chinese">语文</option>
+                            <option value="math">数学</option>
+                            <option value="english">英语</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        {subject === 'custom' && (
+                            <input
+                                type="text"
+                                value={customSubject}
+                                onChange={(e) => setCustomSubject(e.target.value)}
+                                placeholder="输入学科名称"
+                                style={{ marginLeft: '8px', padding: '4px 8px', width: '100px' }}
+                            />
+                        )}
+                    </div>
+                    <div>
+                        <label>版本：</label>
+                        <select value={version} onChange={(e) => setVersion(e.target.value)}>
+                            <option value="2025">2025版</option>
+                            <option value="2026">2026版</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                        {version === 'custom' && (
+                            <input
+                                type="text"
+                                value={customVersion}
+                                onChange={(e) => setCustomVersion(e.target.value)}
+                                placeholder="输入版本名称"
+                                style={{ marginLeft: '8px', padding: '4px 8px', width: '100px' }}
+                            />
+                        )}
+                    </div>
+                    <div>
+                        <label>资料主题：</label>
+                        <input
+                            type="text"
+                            value={topicName}
+                            onChange={(e) => setTopicName(e.target.value)}
+                            placeholder="如：函数专题命题分析"
+                            style={{ width: '280px', padding: '6px 10px' }}
+                        />
+                    </div>
+                    <div>
+                        <label>资料文件：</label>
+                        <input
+                            type="file"
+                            accept=".pdf,.docx"
+                            onChange={(e) => setKnowledgeFile(e.target.files?.[0] || null)}
+                        />
+                        {knowledgeFile && (
+                            <div style={{ fontSize: '12px', color: '#52c41a', marginTop: '4px', maxWidth: '260px', wordBreak: 'break-all' }}>
+                                已选择：{knowledgeFile.name}
+                            </div>
+                        )}
+                    </div>
+                    <div>
+                        <label>页码范围：</label>
+                        <input
+                            type="number"
+                            value={knowledgePageRange.start}
+                            onChange={(e) => setKnowledgePageRange({ ...knowledgePageRange, start: parseInt(e.target.value) || 1 })}
+                            style={{ width: '60px', padding: '4px' }}
+                        />
+                        ~
+                        <input
+                            type="number"
+                            value={knowledgePageRange.end}
+                            onChange={(e) => setKnowledgePageRange({ ...knowledgePageRange, end: parseInt(e.target.value) || 1 })}
+                            style={{ width: '60px', padding: '4px' }}
+                        />
+                    </div>
+                    <button
+                        onClick={extractKnowledgeText}
+                        disabled={knowledgeLoading}
+                        style={{ padding: '6px 16px', background: '#fa8c16', color: 'white', border: 'none', borderRadius: '4px', cursor: knowledgeLoading ? 'not-allowed' : 'pointer' }}
+                    >
+                        {knowledgeLoading ? '处理中...' : '抽取文本'}
+                    </button>
+                    <button
+                        onClick={generateKnowledgeJson}
+                        disabled={knowledgeLoading || !knowledgeRawText.trim()}
+                        style={{ padding: '6px 16px', background: knowledgeRawText.trim() ? '#1890ff' : '#ccc', color: 'white', border: 'none', borderRadius: '4px', cursor: knowledgeRawText.trim() ? 'pointer' : 'not-allowed' }}
+                    >
+                        AI 生成 JSON
+                    </button>
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '8px', padding: '16px' }}>
+                    <h3 style={{ marginTop: 0 }}>原始文本</h3>
+                    <textarea
+                        value={knowledgeRawText}
+                        onChange={(e) => setKnowledgeRawText(e.target.value)}
+                        rows={22}
+                        placeholder="抽取后的资料文本会显示在这里，也可以手动粘贴资料内容。"
+                        style={{ width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: '12px', boxSizing: 'border-box' }}
+                    />
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '8px', padding: '16px' }}>
+                    <h3 style={{ marginTop: 0 }}>知识点 JSON 草稿</h3>
+                    <textarea
+                        value={knowledgeJsonDraft}
+                        onChange={(e) => setKnowledgeJsonDraft(e.target.value)}
+                        rows={22}
+                        placeholder="AI 生成的知识点 JSON 会显示在这里。下一步将接入校对后入库。"
+                        style={{ width: '100%', padding: '10px', fontFamily: 'monospace', fontSize: '12px', boxSizing: 'border-box' }}
+                    />
+                </div>
+            </div>
+
+            <div style={{
+                marginTop: '20px',
+                background: '#fff7e6',
+                border: '1px solid #ffd591',
+                borderRadius: '8px',
+                padding: '14px',
+                color: '#8c5a00',
+                lineHeight: 1.7
+            }}>
+                入库策略：JSON 草稿经人工校对后，再写入 SQLite 的知识点、来源和命题分析表；数据库作为统计分析模块的权威数据源。
+            </div>
+        </div>
+    );
+
+    if (collectionMode === 'knowledge') {
+        return (
+            <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+                <h1>📥 新资料采集</h1>
+                {renderModeSwitcher()}
+                {renderKnowledgeCollectionPanel()}
+            </div>
+        );
+    }
+
     return (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
             <h1>📥 新资料采集</h1>
+            {renderModeSwitcher()}
             
             {/* 弹窗 */}
             <BulkValidationModal />
@@ -1509,12 +1900,11 @@ function DataImport() {
                                 
                                 <div style={{ marginBottom: '12px' }}>
                                     <label>题目内容：</label>
-                                    <textarea
+                                    <TextEditorWithShortcuts
                                         value={q.content}
                                         onChange={(e) => updateQuestion(q.id, 'content', e.target.value)}
                                         rows={3}
-                                        style={{ width: '100%', padding: '8px', marginTop: '4px', borderRadius: '4px', border: '1px solid #ccc' }}
-                                        placeholder="输入题目内容..."
+                                        placeholder="输入题目内容...（支持 Ctrl+Z撤销 / Ctrl+Y重做）"
                                     />
                                 </div>
                                 
@@ -1557,13 +1947,24 @@ function DataImport() {
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                         <strong>🤝 答案管理（讨论确认）</strong>
-                                        <button
-                                            onClick={() => prepareValidation(q)}
-                                            disabled={loading}
-                                            style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                                        >
-                                            💬 邀请同学讨论
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingAnswerQuestion(q);
+                                                    setShowAnswerEditor(true);
+                                                }}
+                                                style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                                            >
+                                                ✏️ 编辑答案
+                                            </button>
+                                            <button
+                                                onClick={() => prepareValidation(q)}
+                                                disabled={loading}
+                                                style={{ padding: '4px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                            >
+                                                💬 邀请同学讨论
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {/* 四栏对比 - 参考答案 vs 我的答案 vs 同学答案 vs 讨论记录 */}
@@ -1574,14 +1975,8 @@ function DataImport() {
                                                 <span>📖 参考答案</span>
                                                 <button
                                                     onClick={() => {
-                                                        const currentAnswers = q.sourceAnswer || '';
-                                                        const newAnswer = window.prompt(
-                                                            '请输入原试卷答案',
-                                                            currentAnswers
-                                                        );
-                                                        if (newAnswer !== null && newAnswer.trim()) {
-                                                            updateQuestion(q.id, 'sourceAnswer', newAnswer.trim());
-                                                        }
+                                                        setEditingAnswerQuestion(q);
+                                                        setShowAnswerEditor(true);
                                                     }}
                                                     style={{
                                                         padding: '2px 8px',
@@ -1608,14 +2003,8 @@ function DataImport() {
                                                 <span>✅ 我的答案</span>
                                                 <button
                                                     onClick={() => {
-                                                        const current = q.finalAnswer || '';
-                                                        const newAnswer = window.prompt(
-                                                            '讨论后确定的答案（有效答案）',
-                                                            current
-                                                        );
-                                                        if (newAnswer !== null && newAnswer.trim()) {
-                                                            updateQuestion(q.id, 'finalAnswer', newAnswer.trim());
-                                                        }
+                                                        setEditingAnswerQuestion(q);
+                                                        setShowAnswerEditor(true);
                                                     }}
                                                     style={{
                                                         padding: '2px 8px',
@@ -1668,14 +2057,8 @@ function DataImport() {
                                                 <span>💬 讨论记录</span>
                                                 <button
                                                     onClick={() => {
-                                                        const current = q.discussion || '';
-                                                        const newNote = window.prompt(
-                                                            '记录讨论要点或决策理由',
-                                                            current
-                                                        );
-                                                        if (newNote !== null && newNote.trim()) {
-                                                            updateQuestion(q.id, 'discussion', newNote.trim());
-                                                        }
+                                                        setEditingAnswerQuestion(q);
+                                                        setShowAnswerEditor(true);
                                                     }}
                                                     style={{
                                                         padding: '2px 8px',
@@ -1790,6 +2173,25 @@ function DataImport() {
                     💾 保存到答案库
                 </button>
             </div>
+            
+            {/* 答案编辑器弹窗 */}
+            {showAnswerEditor && editingAnswerQuestion && (
+                <AnswerEditor
+                    question={editingAnswerQuestion}
+                    onUpdate={(field, value) => {
+                        updateQuestion(editingAnswerQuestion.id, field, value);
+                        // 更新本地状态以保持一致性
+                        setEditingAnswerQuestion({
+                            ...editingAnswerQuestion,
+                            [field]: value
+                        });
+                    }}
+                    onClose={() => {
+                        setShowAnswerEditor(false);
+                        setEditingAnswerQuestion(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

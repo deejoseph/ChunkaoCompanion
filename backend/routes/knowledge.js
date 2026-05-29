@@ -12,6 +12,16 @@ const QUERY_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/query_knowledge_db
 const IMPORT_BANKS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_question_banks.py');
 const LINK_QUESTION_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/link_question_knowledge.py');
 
+function normalizeTitle(title = '') {
+    return String(title)
+        .replace(/\.pdf$/i, '')
+        .replace(/（教师版）|（学生版）|（AI参考答案）/g, '')
+        .replace(/\(教师版\)|\(学生版\)|\(AI参考答案\)/g, '')
+        .replace(/（复习讲义）|（上海专用）/g, '')
+        .replace(/\s+/g, '')
+        .trim();
+}
+
 function runPython(script, args = []) {
     return new Promise((resolve, reject) => {
         execFile(PYTHON, [script, ...args], {
@@ -164,13 +174,24 @@ router.get('/source-answers', async (req, res) => {
         
         console.log('清理后的标题:', cleanTitle);
         
-        // 查找匹配的题库
-        const bank = await db.get(
-            `SELECT id FROM question_banks 
-             WHERE subject_id = ? AND title LIKE ? 
-             LIMIT 1`,
-            [subject, `%${cleanTitle}%`]
+        // 查找匹配的题库。这里用 JS 规范化比较，兼容教师版/学生版/复习讲义等后缀差异。
+        const candidates = await db.all(
+            `SELECT id, title, source_title FROM question_banks
+             WHERE subject_id = ?
+             ORDER BY updated_at DESC`,
+            [subject]
         );
+        const normalizedTitle = normalizeTitle(cleanTitle);
+        const bank = candidates.find(candidate => {
+            const titleKey = normalizeTitle(candidate.title);
+            const sourceKey = normalizeTitle(candidate.source_title);
+            return titleKey === normalizedTitle
+                || sourceKey === normalizedTitle
+                || titleKey.includes(normalizedTitle)
+                || normalizedTitle.includes(titleKey)
+                || sourceKey.includes(normalizedTitle)
+                || normalizedTitle.includes(sourceKey);
+        });
         
         console.log('找到的题库:', bank);
         

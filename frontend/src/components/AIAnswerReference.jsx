@@ -29,29 +29,41 @@ function AIAnswerReference({ currentTopic, subject }) {
         return colors[model] || '#999';
     };
 
+    const normalizeTopicTitle = (title = '') => {
+        return title
+            .replace(/（教师版）/g, '')
+            .replace(/（学生版）/g, '')
+            .replace(/（复习讲义）/g, '')
+            .replace(/（上海专用）/g, '')
+            .replace(/\(教师版\)/g, '')
+            .replace(/\(学生版\)/g, '')
+            .trim();
+    };
+
+    const buildSourceAnswersMap = (questions = []) => {
+        const answersMap = {};
+        questions.forEach((question, index) => {
+            const questionNumber = question.number || index + 1;
+            answersMap[String(questionNumber)] = question.sourceAnswer || '';
+        });
+        return answersMap;
+    };
+
     const loadData = async () => {
         setLoading(true);
         setError(null);
         
         try {
-            // 1. 从 JSON 加载 AI 参考答案
-            let searchTitle = currentTopic;
-            searchTitle = searchTitle.replace(/（教师版）/, '');
-            searchTitle = searchTitle.replace(/（学生版）/, '');
-            searchTitle = searchTitle.replace(/（复习讲义）/, '');
-            searchTitle = searchTitle.replace(/（上海专用）/, '');
-            searchTitle = searchTitle.replace(/\(教师版\)/, '');
-            searchTitle = searchTitle.replace(/\(学生版\)/, '');
-            searchTitle = searchTitle.trim();
+            const searchTitle = normalizeTopicTitle(currentTopic || '');
 
             console.log('搜索标题:', searchTitle);
 
-            const jsonUrl = `http://localhost:3001/api/banks/search?subject=${subject}&title=${encodeURIComponent(searchTitle)}&_=${Date.now()}`;
-            const jsonResponse = await axios.get(jsonUrl);
+            const bankUrl = `http://localhost:3001/api/banks/search?subject=${subject}&title=${encodeURIComponent(searchTitle)}&_=${Date.now()}`;
+            const bankResponse = await axios.get(bankUrl);
             
             let bankData = null;
-            if (jsonResponse.data.success && jsonResponse.data.bank) {
-                bankData = jsonResponse.data.bank;
+            if (bankResponse.data.success && bankResponse.data.bank) {
+                bankData = bankResponse.data.bank;
             }
             
             if (!bankData) {
@@ -59,22 +71,26 @@ function AIAnswerReference({ currentTopic, subject }) {
                 setLoading(false);
                 return;
             }
-            
-            // 2. 从数据库获取原试卷答案（source_answer）
-            const dbUrl = `http://localhost:3001/api/knowledge/source-answers?subject=${subject}&title=${encodeURIComponent(currentTopic)}&_=${Date.now()}`;
-            const dbResponse = await axios.get(dbUrl);
-            
-            const answersMap = {};
-            if (dbResponse.data.success && dbResponse.data.answers) {
-                dbResponse.data.answers.forEach(item => {
-                    // 统一转为字符串类型
-                    answersMap[String(item.number)] = item.source_answer;
-                });
+
+            let answersMap = buildSourceAnswersMap(bankData.questions || []);
+            setSourceAnswersBankId(bankData.paperId || bankData.id || null);
+
+            // 历史 JSON 兜底：如果 search 回退到了旧 JSON 且没有 sourceAnswer，再问一次数据库答案。
+            if (!Object.values(answersMap).some(Boolean)) {
+                const dbUrl = `http://localhost:3001/api/knowledge/source-answers?subject=${subject}&title=${encodeURIComponent(currentTopic)}&_=${Date.now()}`;
+                const dbResponse = await axios.get(dbUrl);
+
+                if (dbResponse.data.success && dbResponse.data.answers) {
+                    answersMap = {};
+                    dbResponse.data.answers.forEach(item => {
+                        answersMap[String(item.number)] = item.source_answer;
+                    });
+                    setSourceAnswersBankId(dbResponse.data.bankId || bankData.paperId || bankData.id || null);
+                }
             }
-            setSourceAnswersBankId(dbResponse.data.bankId || null);
             
             console.log('数据库原试卷答案映射:', answersMap);
-            console.log('第一个题目的编号:', bankData.questions[0]?.number, '类型:', typeof bankData.questions[0]?.number);
+            console.log('第一个题目的编号:', bankData.questions?.[0]?.number, '类型:', typeof bankData.questions?.[0]?.number);
             
             setSourceAnswersMap(answersMap);
             setBank(bankData);
@@ -207,7 +223,7 @@ function AIAnswerReference({ currentTopic, subject }) {
                                 </div>
                                 
                                 {bank.questions.map((q, idx) => {
-                                    const questionNumber = idx + 1;
+                                    const questionNumber = q.number || idx + 1;
                                     const sourceAnswer = sourceAnswersMap[String(questionNumber)] || '';
 
                                     return (

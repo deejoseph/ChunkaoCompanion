@@ -195,6 +195,10 @@ def create_schema(conn):
             content TEXT NOT NULL,
             source_answer TEXT DEFAULT '',
             final_answer TEXT DEFAULT '',
+            my_answer TEXT DEFAULT '',
+            peer_answers TEXT DEFAULT '{}',
+            ai_answers TEXT DEFAULT '{}',
+            discussion TEXT DEFAULT '',
             analysis TEXT DEFAULT '',
             score REAL,
             difficulty TEXT,
@@ -276,6 +280,10 @@ def migrate_schema(conn):
             ("source_file_id", "source_file_id TEXT"),
             ("parse_confidence", "parse_confidence REAL"),
             ("needs_review", "needs_review INTEGER NOT NULL DEFAULT 0"),
+            ("my_answer", "my_answer TEXT DEFAULT ''"),
+            ("peer_answers", "peer_answers TEXT DEFAULT '{}'"),
+            ("ai_answers", "ai_answers TEXT DEFAULT '{}'"),
+            ("discussion", "discussion TEXT DEFAULT ''"),
         ],
     }
 

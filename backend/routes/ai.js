@@ -125,13 +125,15 @@ router.post('/validate', async (req, res) => {
 
 // ========== AI 助教问答接口（非流式） ==========
 router.post('/ask', async (req, res) => {
-    const { subject, question, model } = req.body;
+    const { subject, question, model, numPredict, temperature } = req.body;
 
     if (!question) {
         return res.status(400).json({ success: false, error: '缺少问题内容' });
     }
 
     const modelName = model || 'qwen2.5:14b';
+    const safeNumPredict = Math.min(Math.max(Number(numPredict) || 2048, 256), 8192);
+    const safeTemperature = Number.isFinite(Number(temperature)) ? Number(temperature) : 0.3;
 
     try {
         const response = await axios.post(OLLAMA_URL, {
@@ -139,8 +141,8 @@ router.post('/ask', async (req, res) => {
             prompt: question,
             stream: false,
             options: {
-                temperature: 0.3,
-                num_predict: 2048
+                temperature: safeTemperature,
+                num_predict: safeNumPredict
             }
         });
 
