@@ -41,6 +41,45 @@ async function openDb() {
     });
 }
 
+// 上传题目资源（截图/公式图片等）并写入 question_assets 表
+const multer = require('multer');
+const ASSETS_BASE = path.join(__dirname, '../../data/question_assets');
+if (!fs.existsSync(ASSETS_BASE)) fs.mkdirSync(ASSETS_BASE, { recursive: true });
+const upload = multer({ dest: path.join(__dirname, '../../temp_uploads') });
+
+router.post('/upload-asset', upload.single('file'), async (req, res) => {
+    const file = req.file;
+    const { bankId, questionId, assetType, pageNumber, bboxJson, description } = req.body;
+
+    if (!file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+    if (!bankId || !questionId) return res.status(400).json({ success: false, error: 'Missing bankId or questionId' });
+
+    try {
+        const ext = path.extname(file.originalname) || '.png';
+        const safeName = `${Date.now()}_${Math.random().toString(36).slice(2,8)}${ext}`;
+        const targetDir = path.join(ASSETS_BASE, bankId, questionId);
+        fs.mkdirSync(targetDir, { recursive: true });
+        const targetPath = path.join(targetDir, safeName);
+        fs.renameSync(file.path, targetPath);
+
+        const relativePath = path.relative(path.join(__dirname, '../..'), targetPath).replace(/\\/g, '/');
+
+        const db = await openDb();
+        const assetId = `${bankId}_${questionId}_${Date.now()}`;
+        await db.run(
+            `INSERT INTO question_assets (id, question_id, asset_type, file_path, page_number, bbox_json, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [assetId, `${bankId}_${questionId}`, assetType || 'screenshot', relativePath, pageNumber ? Number(pageNumber) : null, bboxJson || null, description || '']
+        );
+        await db.close();
+
+        res.json({ success: true, assetId, filePath: relativePath });
+    } catch (error) {
+        console.error('upload-asset error:', error);
+        if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 async function loadBankFromDb(db, bankId) {
     const bank = await db.get(
         `SELECT id, title, source_title, subject_id, version_id, total_questions, source_path,
@@ -258,72 +297,29 @@ router.get('/:id', async (req, res) => {
 
 // 保存题库（同时保存到数据库）
 router.post('/save', async (req, res) => {
-    const { paperId, title, sourceTitle, subject, version, knowledgePoints, questions } = req.body;
-    
+    const { paperId, title, sourceTitle, subject, version, knowledgePoints, questions, sourcePath: reqSourcePath, sourceFormat, paperType } = req.body;
+
     if (!paperId || !title) {
         return res.status(400).json({ success: false, error: '缺少必要参数' });
     }
-    
-    try {
-        const db = await openDb();
-        const backupFileName = `${paperId}_question_bank.json`;
-        const backupPath = path.join('data/question_banks', backupFileName);
-        
-        // 保存或更新 question_banks
-        await db.run(
-            `INSERT OR REPLACE INTO question_banks 
-             (id, title, source_title, subject_id, version_id, source_path, source_format, paper_type,
-              total_questions, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'json', 'question_bank', ?, datetime('now'), datetime('now'))
-             ON CONFLICT(id) DO UPDATE SET
-                title=excluded.title,
-                source_title=excluded.source_title,
-                subject_id=excluded.subject_id,
-                version_id=excluded.version_id,
-                source_path=excluded.source_path,
-                source_format=excluded.source_format,
-                paper_type=excluded.paper_type,
-                total_questions=excluded.total_questions,
-                updated_at=excluded.updated_at`,
-            [paperId, title, sourceTitle || title, subject, version, backupPath, questions.length]
-        );
 
-        await db.run(`DELETE FROM questions WHERE bank_id = ?`, [paperId]);
-        
-        // 保存题目
-        for (const [index, q] of questions.entries()) {
-            const number = Number.parseInt(String(q.id || '').replace('q', ''), 10) || index + 1;
-            const peerAnswers = q.peerAnswers || q.aiAnswers || {};
-            const myAnswer = q.myAnswer || q.finalAnswer || '';
-            await db.run(
-                `INSERT OR REPLACE INTO questions 
-                 (id, bank_id, subject_id, version_id, number, original_number, type, content, 
-                  source_answer, final_answer, my_answer, peer_answers, ai_answers, discussion, analysis, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-                [`${paperId}_${q.id}`, paperId, subject, version, 
-                 number, q.id || `q${number}`, q.type, q.content,
-                 q.sourceAnswer || '', q.finalAnswer || '', myAnswer,
-                 JSON.stringify(peerAnswers), JSON.stringify(q.aiAnswers || {}), q.discussion || '',
-                 q.analysis || '']
-            );
-        }
-        
-        await db.close();
-        
-        // 同时也保存到 JSON 文件作为备份
-        const bankData = {
+    try {
+        const { saveParsedBank } = require('../services/saveParsedBank');
+        const bank = {
             paperId,
             title,
-            subject,
-            version,
+            sourceTitle: sourceTitle || title,
+            subject: subject || null,
+            version: version || null,
+            sourcePath: reqSourcePath || '',
+            sourceFormat: sourceFormat || '',
+            paperType: paperType || '',
             knowledgePoints: knowledgePoints || [],
-            totalQuestions: questions.length,
-            questions: questions
+            questions: questions || []
         };
-        
-        const filePath = path.join(BANKS_DIR, `${paperId}_question_bank.json`);
-        fs.writeFileSync(filePath, JSON.stringify(bankData, null, 2), 'utf-8');
-        
+
+        await saveParsedBank({ dbFile: DB_PATH, bank });
+
         res.json({ success: true, message: '保存成功' });
     } catch (error) {
         console.error('保存失败:', error);
@@ -363,6 +359,16 @@ router.delete('/:id', async (req, res) => {
                 fs.unlinkSync(filePath);
                 deletedJson = true;
             }
+        }
+
+        // 删除磁盘上的题目资产目录（如果存在）
+        try {
+            const assetDir = path.join(ASSETS_BASE, id);
+            if (fs.existsSync(assetDir)) {
+                fs.rmSync(assetDir, { recursive: true, force: true });
+            }
+        } catch (rmErr) {
+            console.warn('删除资产目录失败:', rmErr.message);
         }
 
         if (result.changes === 0 && !deletedJson) {

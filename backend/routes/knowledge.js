@@ -150,6 +150,56 @@ router.get('/questions', async (req, res) => {
     }
 });
 
+// 保存知识点 JSON（前端校对后调用）
+router.post('/save', async (req, res) => {
+    const payload = req.body || {};
+    const subject = payload.subject || 'chinese';
+    const version = payload.version || '2026';
+    const topicTitle = payload.topicTitle || payload.title || '';
+    const json = payload.json || payload.knowledge || {};
+
+    if (!topicTitle || !json) {
+        res.status(400).json({ success: false, error: '缺少 topicTitle 或 json 字段' });
+        return;
+    }
+
+    try {
+        const db = await open({ filename: path.join(__dirname, '../../data/knowledge/chunkao.db'), driver: sqlite3.Database });
+        const now = new Date().toISOString();
+
+        // upsert topic
+        const topicId = `${subject}_${version}_${topicTitle}`.replace(/\s+/g, '_').slice(0, 120);
+        await db.run(`INSERT INTO topics(id, subject_id, version_id, code, title, source_dir, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET title=excluded.title, updated_at=excluded.updated_at`,
+            [topicId, subject, version, null, topicTitle, '', now, now]
+        );
+
+        // upsert knowledge points and link to topic
+        const knowledgePoints = Array.isArray(json.knowledgePoints) ? json.knowledgePoints : (json.knowledge_points || []);
+        for (const kp of knowledgePoints) {
+            const name = (kp.name || kp.title || '').trim();
+            if (!name) continue;
+            const kpId = `${subject}_${name}`.replace(/\s+/g, '_').slice(0, 120);
+            await db.run(`INSERT INTO knowledge_points(id, subject_id, name, category, description, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(subject_id, name) DO UPDATE SET updated_at=excluded.updated_at`,
+                [kpId, subject, name, kp.category || kp.type || '', kp.description || '', now, now]
+            );
+
+            await db.run(`INSERT OR REPLACE INTO topic_knowledge_points(topic_id, knowledge_point_id, confidence, source)
+                VALUES(?, ?, ?, ?)
+            `, [topicId, kpId, kp.confidence || 0.8, 'ai-draft']);
+        }
+
+        await db.close();
+        res.json({ success: true, topicId });
+    } catch (error) {
+        console.error('保存知识点失败:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // 获取专题下所有题目的原答案（用于 AI 参考答案中的参考资料）
 router.get('/source-answers', async (req, res) => {
     const { subject, title } = req.query;

@@ -79,6 +79,7 @@ function DataImport() {
     const [knowledgeRawText, setKnowledgeRawText] = useState('');
     const [knowledgeJsonDraft, setKnowledgeJsonDraft] = useState('');
     const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+    const [lastCorrectedText, setLastCorrectedText] = useState('');
 
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
@@ -401,6 +402,40 @@ ${knowledgeRawText.slice(0, 12000)}`;
         }
     };
 
+    const saveKnowledgeToDb = async () => {
+        if (!knowledgeJsonDraft || !knowledgeJsonDraft.trim()) {
+            alert('当前没有知识点 JSON 草稿，请先生成或粘贴后再保存');
+            return;
+        }
+        if (!topicName || !topicName.trim()) {
+            alert('请先填写资料主题（专题名称）');
+            return;
+        }
+
+        if (!window.confirm(`将把当前知识点 JSON 草稿保存到知识库：\n专题: ${topicName}\n学科: ${getActualSubject()}\n确定继续？`)) return;
+
+        setKnowledgeLoading(true);
+        try {
+            const parsed = JSON.parse(knowledgeJsonDraft);
+            const response = await axios.post('http://localhost:3001/api/knowledge/save', {
+                subject: getActualSubject(),
+                version: getActualVersion(),
+                topicTitle: topicName,
+                json: parsed
+            });
+            if (response.data.success) {
+                alert('已保存知识点草稿到知识库: ' + response.data.topicId);
+            } else {
+                alert('保存失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (err) {
+            console.error('保存知识点失败:', err);
+            alert('保存失败: ' + (err.response?.data?.error || err.message || err));
+        } finally {
+            setKnowledgeLoading(false);
+        }
+    };
+
     const getBanksBySubject = () => {
         const grouped = {};
         savedBanks.forEach(bank => {
@@ -540,6 +575,39 @@ ${knowledgeRawText.slice(0, 12000)}`;
         }
     };
 
+    const uploadQuestionAsset = async (questionId, file, assetType = 'screenshot', pageNumber = null, bboxJson = null, description = '') => {
+        if (!file) return;
+        const actualSubject = getActualSubject();
+        const paperId = editingBank || `${actualSubject}_${makeSafeFileName(topicName)}`;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('bankId', paperId);
+        formData.append('questionId', `q${questions.findIndex(q => q.id === questionId) + 1}`);
+        formData.append('assetType', assetType);
+        if (pageNumber) formData.append('pageNumber', pageNumber);
+        if (bboxJson) formData.append('bboxJson', JSON.stringify(bboxJson));
+        if (description) formData.append('description', description);
+
+        try {
+            const res = await axios.post('http://localhost:3001/api/banks/upload-asset', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (res.data.success) {
+                alert('上传成功');
+                // 可选地把 asset 信息写入本地问题状态（后续用于显示）
+                const assetInfo = { id: res.data.assetId, filePath: res.data.filePath };
+                setQuestions(prev => prev.map(q => q.id === questionId ? { ...q, assets: [...(q.assets || []), assetInfo] } : q));
+            } else {
+                alert('上传失败: ' + (res.data.error || '未知错误'));
+            }
+        } catch (err) {
+            console.error('upload asset failed', err);
+            alert('上传失败: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
     // 第一步：只提取原始文本，不解析
     const parseDocument = async () => {
         if (!file) {
@@ -599,6 +667,9 @@ ${knowledgeRawText.slice(0, 12000)}`;
         setShowCorrectionModal(false);
         setParsing(true);
 
+        // 保存上次校正文本，供一键入库使用
+        setLastCorrectedText(correctionData.correctedText || '');
+
         try {
             const response = await axios.post('http://localhost:3001/api/docs/parse-corrected', {
                 correctedText: correctionData.correctedText,
@@ -645,6 +716,73 @@ ${knowledgeRawText.slice(0, 12000)}`;
         } catch (error) {
             console.error('解析失败:', error);
             alert('解析失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setParsing(false);
+        }
+    };
+
+    const saveCorrectedToDb = async () => {
+        if (!lastCorrectedText || !lastCorrectedText.trim()) {
+            // 如果页面上已有题目，提供直接保存题库的回退路径
+            if (questions && questions.length > 0) {
+                if (!topicName || !topicName.trim()) {
+                    alert('请先填写专题名称');
+                    return;
+                }
+                if (!window.confirm(`当前没有校正文本，但页面已有 ${questions.length} 道题目。\n是否直接将这些题目保存为题库？`)) {
+                    return;
+                }
+                // 复用现有保存题库逻辑
+                await saveQuestionBank();
+                return;
+            }
+
+            alert('没有可保存的校正文本，请先解析并校正文本后再保存入库');
+            return;
+        }
+
+        if (!topicName || !topicName.trim()) {
+            alert('请先填写专题名称');
+            return;
+        }
+
+        const actualSubject = getActualSubject();
+        const actualVersion = getActualVersion();
+        const paperId = `${actualSubject}_${makeSafeFileName(topicName)}`;
+        const title = makeAIReferenceTitle(topicName);
+
+        if (!window.confirm(`将把当前校正后的文本解析并保存到题库：\n题库ID: ${paperId}\n题库标题: ${title}\n确定继续？`)) {
+            return;
+        }
+
+        setParsing(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/docs/parse-corrected', {
+                correctedText: lastCorrectedText,
+                answerMarker,
+                analysisMarker,
+                questionPattern,
+                pageStart: currentPageRange.start,
+                pageEnd: currentPageRange.end,
+                saveToDb: true,
+                paperId,
+                title,
+                subject: actualSubject,
+                version: actualVersion,
+                topicName
+            });
+
+            if (response.data.success) {
+                alert(`已保存到题库：${paperId}`);
+                // 尝试加载刚保存的题库以便继续编辑
+                try { loadBankForEdit(paperId); } catch (e) { /* ignore */ }
+                loadBanks();
+            } else {
+                alert('保存失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('保存到题库失败:', error);
+            alert('保存失败: ' + (error.response?.data?.error || error.message));
         } finally {
             setParsing(false);
         }
@@ -1108,6 +1246,28 @@ ${knowledgeRawText.slice(0, 12000)}`;
                 fontSize: '12px',
                 display: 'inline-block'
             }}>
+                🖼 上传题目截图
+                <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        uploadQuestionAsset(questionId, f);
+                        e.target.value = '';
+                    }}
+                />
+            </label>
+            <label style={{
+                padding: '4px 10px',
+                background: '#f0f0f0',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                display: 'inline-block'
+            }}>
                 📄 拍照识别图文
                 <input
                     type="file"
@@ -1478,6 +1638,14 @@ ${knowledgeRawText.slice(0, 12000)}`;
                     >
                         AI 生成 JSON
                     </button>
+                    <button
+                        onClick={saveKnowledgeToDb}
+                        disabled={knowledgeLoading || !knowledgeJsonDraft.trim()}
+                        style={{ padding: '6px 16px', background: knowledgeJsonDraft.trim() ? '#722ed1' : '#ccc', color: 'white', border: 'none', borderRadius: '4px', cursor: knowledgeJsonDraft.trim() ? 'pointer' : 'not-allowed' }}
+                        title="将当前知识点 JSON 草稿保存到知识库（会尝试写入 topics 和 knowledge_points 表）"
+                    >
+                        💾 保存知识点到知识库
+                    </button>
                 </div>
             </div>
 
@@ -1562,6 +1730,14 @@ ${knowledgeRawText.slice(0, 12000)}`;
                     style={{ padding: '6px 16px', background: '#52c41a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                 >
                     ➕ 新建题库
+                </button>
+                <button
+                    onClick={saveCorrectedToDb}
+                    disabled={!(lastCorrectedText && lastCorrectedText.trim() || questions.length > 0) || parsing}
+                    title={lastCorrectedText && lastCorrectedText.trim() ? "将最近校正的文本解析并保存到 SQLite 题库（生成 JSON 备份）" : "当前没有校正文本，点击将把页面上的题目直接保存为题库"}
+                    style={{ padding: '6px 16px', background: '#722ed1', color: 'white', border: 'none', borderRadius: '4px', cursor: (lastCorrectedText && lastCorrectedText.trim() || questions.length > 0) && !parsing ? 'pointer' : 'not-allowed' }}
+                >
+                    💾 保存解析结果入库
                 </button>
             </div>
 

@@ -3,6 +3,17 @@ import axios from 'axios';
 
 const API_BASE = 'http://localhost:3001';
 
+// 新增课程名称映射（支持新国际课程）
+const COURSE_NAME_MAP = {
+  '托福': '托福准备',
+  '雅思': '雅思准备',
+  '26年AP巴龙教辅书': 'AP课程（巴龙教辅）',
+  '26年AP真题': 'AP真题',
+  'A Level CIE教辅': 'A Level课程',
+  'SAT教辅': 'SAT教辅',
+  'SAT题库': 'SAT题库'
+};
+
 function InternationalCourses() {
     const [courses, setCourses] = useState([]);
     const [selectedCourse, setSelectedCourse] = useState(null);
@@ -13,6 +24,7 @@ function InternationalCourses() {
     const [subtitleUrl, setSubtitleUrl] = useState('');
     const [coursePdfUrl, setCoursePdfUrl] = useState('');
     const [expandedFolders, setExpandedFolders] = useState({});
+    const [expandedCourses, setExpandedCourses] = useState({});
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const videoRef = useRef(null);
 
@@ -29,46 +41,60 @@ function InternationalCourses() {
                 setCourses(response.data.courses);
             }
         } catch (error) {
-            console.error('加载课程列表失败:', error);
+            console.error('课程列表加载失败:', error);
         }
         setLoading(false);
     };
 
     const getCoursePdfUrl = (courseId) => {
         if (courseId.includes('TOEFL')) {
-            return `${API_BASE}/api/international/root-file/加州大学托福准备专项课程.pdf`;
+            return `${API_BASE}/api/international/root-file/加州大学托福备考特讲课程.pdf`;
         }
         if (courseId.includes('IELTS')) {
-            return `${API_BASE}/api/international/root-file/加州大学雅思准备专项课程.pdf`;
+            return `${API_BASE}/api/international/root-file/加州大学雅思备考特讲课程.pdf`;
+        }
+        if (courseId.includes('A Level')) {
+            return `${API_BASE}/api/international/root-file/A Level CIE教辅/讲义.pdf`; // 实际文件路径请根据服务器调整
+        }
+        if (courseId.includes('SAT')) {
+            return `${API_BASE}/api/international/root-file/SAT教辅/数学.pdf`; // 实际文件路径请根据服务器调整
         }
         return null;
     };
 
+    const doesUrlExist = async (url) => {
+        try {
+            await axios.head(url, { timeout: 5000 });
+            return true;
+        } catch (error) {
+            return false;
+        }
+    };
+
     const selectCourse = async (course) => {
-        console.log('选择课程:', course);
+        console.log('选择的课程:', course);
         setSelectedCourse(course);
-        // 清空视频状态
-        setSelectedVideo(null);
         setVideoUrl('');
         setSubtitleUrl('');
-        
-        const pdfUrl = getCoursePdfUrl(course.id);
-        console.log('讲义URL:', pdfUrl);
-        if (pdfUrl) {
-            try {
-                const testRes = await fetch(pdfUrl);
-                if (testRes.ok) {
-                    setCoursePdfUrl(pdfUrl);
-                } else {
-                    setCoursePdfUrl('');
-                }
-            } catch (err) {
-                setCoursePdfUrl('');
+        setCoursePdfUrl('');
+
+        // 切换或初始化当前选中课程的展开状态
+        setExpandedCourses(prev => ({
+            ...prev,
+            [course.id]: prev[course.id] !== undefined ? !prev[course.id] : true
+        }));
+
+        // AP/A Level/SAT 课程显示固定讲义 PDF
+        if (course?.name.includes('AP') || course?.name.includes('A Level') || course?.name.includes('SAT')) {
+            const pdfUrl = getCoursePdfUrl(course.id);
+            if (pdfUrl && await doesUrlExist(pdfUrl)) {
+                console.log('PDF URL:', pdfUrl);
+                setCoursePdfUrl(pdfUrl);
+            } else {
+                console.log('固定讲义 PDF 不存在，已跳过展示:', pdfUrl);
             }
-        } else {
-            setCoursePdfUrl('');
         }
-        
+
         setLoading(true);
         try {
             const response = await axios.get(`${API_BASE}/api/international/courses/${course.id}/structure`);
@@ -83,7 +109,7 @@ function InternationalCourses() {
                 setExpandedFolders(initialExpanded);
             }
         } catch (error) {
-            console.error('加载课程结构失败:', error);
+            console.error('课程结构加载失败:', error);
         }
         setLoading(false);
     };
@@ -93,34 +119,43 @@ function InternationalCourses() {
             ...prev,
             [path]: !prev[path]
         }));
+        console.log('文件夹切换:', path, expandedFolders);
     };
 
-    // 通用文件选择（支持视频和 PDF）
+    const toggleCourse = (courseId) => {
+        setExpandedCourses(prev => ({
+            ...prev,
+            [courseId]: !prev[courseId]
+        }));
+        console.log('课程切换:', courseId, expandedCourses);
+    };
+
+    // 普通文件选择（支持视频和 PDF）
     const selectFile = (courseId, filePath, fileName, fileType) => {
         console.log('选择文件:', { filePath, fileName, fileType });
-        
+
         if (fileType === 'video') {
             // 处理视频
             setVideoUrl('');
             setSubtitleUrl('');
             setSelectedVideo(null);
-            
+
             // 🔥 关键修复：对于托福/雅思课程，不清除固定讲义 PDF
             // 只有 AP 课程才清除临时 PDF（因为 AP 没有固定讲义）
             if (selectedCourse && isAPCourse(selectedCourse)) {
                 setCoursePdfUrl('');
             }
             // 注意：托福/雅思的固定讲义会保留，不执行 setCoursePdfUrl('')
-            
+
             setTimeout(() => {
                 const url = `${API_BASE}/api/international/file/${courseId}/${encodeURIComponent(filePath)}`;
                 const subtitlePath = filePath.replace(/\.(mp4)$/i, '.srt');
                 const subUrl = `${API_BASE}/api/international/subtitle/${courseId}/${encodeURIComponent(subtitlePath)}`;
-                
+
                 setSelectedVideo({ path: filePath, name: fileName });
                 setVideoUrl(url);
                 setSubtitleUrl(subUrl);
-                
+
                 console.log('视频URL:', url);
                 console.log('VTT字幕URL:', subUrl);
             }, 50);
@@ -144,43 +179,44 @@ function InternationalCourses() {
         window.open(url, '_blank');
     };
 
-    // 判断是否为 AP 课程
+    // 判断是否为 AP/A Level/SAT 课程
     const isAPCourse = (course) => {
-        return course && (course.id === '26年AP巴朗教辅书' || course.name.includes('AP'));
+        return course && (course.name.includes('AP') || course.name.includes('A Level') || course.name.includes('SAT'));
     };
 
-    // 过滤文件列表（AP 课程显示所有文件，非 AP 只显示视频和文件夹）
+    // 过滤文件列表（AP/A Level/SAT 课程显示所有文件，其他课程只显示视频和文件夹）
     const filterItems = (items, course) => {
         if (!items) return [];
-        if (isAPCourse(course)) {
-            // AP 课程：返回所有项目（文件夹和文件）
+
+        // AP/A Level/SAT 课程显示所有文件
+        if (course?.name.includes('AP') || course?.name.includes('A Level') || course?.name.includes('SAT')) {
             return items.map(item => {
                 if (item.type === 'folder' && item.children) {
                     return { ...item, children: filterItems(item.children, course) };
                 }
                 return item;
             });
-        } else {
-            // 原有逻辑：只保留文件夹和视频
-            return items.filter(item => {
-                if (item.type === 'folder') return true;
-                return item.fileType === 'video';
-            }).map(item => {
-                if (item.type === 'folder' && item.children) {
-                    return { ...item, children: filterItems(item.children, course) };
-                }
-                return item;
-            });
         }
+
+        // 其他课程只显示视频和文件夹
+        return items.filter(item => {
+            if (item.type === 'folder') return true;
+            return item.fileType === 'video';
+        }).map(item => {
+            if (item.type === 'folder' && item.children) {
+                return { ...item, children: filterItems(item.children, course) };
+            }
+            return item;
+        });
     };
 
     const renderTree = (items, courseId, course, level = 0) => {
         if (!items) return null;
         const filteredItems = filterItems(items, course);
-        
+
         return filteredItems.map((item, idx) => {
             const indent = level * 16;
-            
+
             if (item.type === 'folder') {
                 const isExpanded = expandedFolders[item.path];
                 return (
@@ -228,10 +264,10 @@ function InternationalCourses() {
                     icon = '📄';
                     fileTypeDisplay = '文件';
                 }
-                
+
                 const isSelected = (item.fileType === 'video' && selectedVideo?.path === item.path) ||
                                    (item.fileType === 'pdf' && coursePdfUrl?.includes(encodeURIComponent(item.path)));
-                
+
                 return (
                     <div
                         key={item.path}
@@ -309,37 +345,55 @@ function InternationalCourses() {
                             </p>
                         </div>
 
-                        {courses.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                                加载课程中...
-                            </div>
-                        ) : (
-                            courses.map(course => (
-                                <div key={course.id} style={{ marginBottom: '20px' }}>
-                                    <div
-                                        onClick={() => selectCourse(course)}
-                                        style={{
-                                            padding: '12px',
-                                            background: selectedCourse?.id === course.id ? '#e6f7ff' : 'white',
-                                            borderRadius: '8px',
-                                            cursor: 'pointer',
-                                            border: selectedCourse?.id === course.id ? '1px solid #91d5ff' : '1px solid #e8e8e8',
-                                            marginBottom: '8px'
-                                        }}
-                                    >
-                                        <div style={{ fontWeight: 'bold', fontSize: '14px', textAlign: 'left' }}>
-                                            {course.name}
-                                        </div>
-                                    </div>
-                                    
-                                    {selectedCourse?.id === course.id && courseStructure && (
-                                        <div style={{ marginLeft: '0px', borderLeft: 'none', paddingLeft: '0' }}>
-                                            {renderTree(courseStructure, course.id, course)}
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                        )}
+{courses.length === 0 ? (
+    <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
+        加载课程中...
+    </div>
+) : (
+    courses.map(course => (
+        <div key={course.id} style={{ marginBottom: '20px' }}>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px',
+                    background: selectedCourse?.id === course.id ? '#e6f7ff' : 'white',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    border: selectedCourse?.id === course.id ? '1px solid #91d5ff' : '1px solid #e8e8e8',
+                    marginBottom: '8px'
+                }}
+                onClick={() => selectCourse(course)}
+            >
+                <div style={{ fontWeight: 'bold', fontSize: '14px', textAlign: 'left' }}>
+                    {course.name}
+                </div>
+<button
+    onClick={(e) => {
+        e.stopPropagation();
+        toggleCourse(course.id);
+    }}
+    style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: '14px',
+        color: '#1890ff'
+    }}
+>
+    {expandedCourses[course.id] ? '🗂️ 收起' : '展开 ▼'}
+</button>
+            </div>
+            
+            {selectedCourse?.id === course.id && courseStructure && expandedCourses[course.id] && (
+                <div style={{ marginLeft: '0px', borderLeft: 'none', paddingLeft: '0' }}>
+                    {renderTree(courseStructure, course.id, course)}
+                </div>
+            )}
+        </div>
+    ))
+)}
                     </>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', marginTop: '20px' }}>

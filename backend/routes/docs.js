@@ -8,6 +8,14 @@ const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 const PDFParser = require('pdf2json');
+const sqlite3 = require('sqlite3').verbose();
+const { open } = require('sqlite');
+
+// 题库 JSON 保存目录（与 banks.js 保持一致）
+const BANKS_DIR = path.join(__dirname, '../../data/question_banks');
+if (!fs.existsSync(BANKS_DIR)) {
+    fs.mkdirSync(BANKS_DIR, { recursive: true });
+}
 
 // 使用项目内的目录
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -334,7 +342,23 @@ router.post('/parse', upload.single('file'), async (req, res) => {
 
 // ========== 新增：解析校正后的文本接口 ==========
 router.post('/parse-corrected', async (req, res) => {
-    const { correctedText, answerMarker, analysisMarker, questionPattern, pageStart, pageEnd } = req.body;
+    const {
+        correctedText,
+        answerMarker,
+        analysisMarker,
+        questionPattern,
+        pageStart,
+        pageEnd,
+        saveToDb,
+        paperId,
+        title,
+        subject,
+        version,
+        sourcePath,
+        sourceFormat,
+        paperType,
+        topicName
+    } = req.body;
 
     if (!correctedText) {
         return res.status(400).json({ success: false, error: 'No text provided' });
@@ -353,12 +377,59 @@ router.post('/parse-corrected', async (req, res) => {
             analysisMarker: anaMarker
         });
 
+        // 如果请求要求保存到数据库，则写入 question_banks/questions 并生成 JSON 备份
+        if (saveToDb) {
+            if (!paperId || !title) {
+                return res.status(400).json({ success: false, error: 'saveToDb requires paperId and title' });
+            }
+
+            try {
+                const db = await open({
+                    filename: path.join(__dirname, '../../data/knowledge/chunkao.db'),
+                    driver: sqlite3.Database
+                });
+
+                // delegate to shared saveParsedBank service
+                const { saveParsedBank } = require('../services/saveParsedBank');
+                const bank = {
+                    paperId,
+                    title,
+                    sourceTitle: topicName || title,
+                    subject: subject || null,
+                    version: version || null,
+                    sourcePath: sourcePath || '',
+                    sourceFormat: sourceFormat || '',
+                    paperType: paperType || '',
+                    knowledgePoints: [],
+                    totalQuestions: questions.length,
+                    questions: questions.map((q, idx) => ({
+                        id: q.id ? String(q.id) : `q${idx + 1}`,
+                        type: q.type || 'qa',
+                        content: q.content || '',
+                        sourceAnswer: q.sourceAnswer || q.answer || '',
+                        myAnswer: q.myAnswer || q.finalAnswer || '',
+                        peerAnswers: q.peerAnswers || {},
+                        aiAnswers: q.aiAnswers || {},
+                        discussion: q.discussion || '',
+                        finalAnswer: q.finalAnswer || '',
+                        analysis: q.analysis || ''
+                    }))
+                };
+
+                await saveParsedBank({ dbFile: path.join(__dirname, '../../data/knowledge/chunkao.db'), bank });
+            } catch (err) {
+                console.error('保存解析结果到数据库失败:', err);
+                return res.status(500).json({ success: false, error: err.message });
+            }
+        }
+
         res.json({
             success: true,
             questions,
             totalQuestions: questions.length,
             pageStart: parseInt(pageStart) || 1,
             pageEnd: parseInt(pageEnd) || 1,
+            saved: !!saveToDb,
             message: `Parsed ${questions.length} questions from corrected text`
         });
     } catch (error) {
