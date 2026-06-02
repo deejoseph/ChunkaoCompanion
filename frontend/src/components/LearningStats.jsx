@@ -16,8 +16,23 @@ function LearningStats() {
     const [dailyStudyTime, setDailyStudyTime] = useState([]);
     const [knowledgeHeatmap, setKnowledgeHeatmap] = useState([]);
     const [trendingTopics, setTrendingTopics] = useState([]);
-    // 在组件顶部，其他 useState 之后添加
     const [heatmapSubject, setHeatmapSubject] = useState('math');
+
+    // ========== 命题分析图表相关状态 ==========
+    const [analysisSubject, setAnalysisSubject] = useState('math');
+    const subjectMap = {
+        math: { name: '数学', folder: '数学' },
+        chinese: { name: '语文', folder: '语文' },
+        english: { name: '英语', folder: '英语' }
+    };
+    // 修正：file 字段与实际文件名完全一致
+    const chartList = [
+        { key: 'heatmap1', title: '2017-2026年 考点-分值热图', file: '2017-2026年 考点-分值热图.png' },
+        { key: 'heatmap2', title: '2022-2026年 考点-分值热图', file: '2022-2026年 考点-分值热图.png' },
+        { key: 'trend', title: '2017-2029年 分值趋势（含预测）', file: '2017-2029年 分值趋势（含预测）.png' },
+        { key: 'difficultyTrend', title: '2017-2029年 难度趋势（含预测）', file: '2017-2029年 难度趋势（含预测）.png' },
+        { key: 'difficultyRatio', title: '2017-2026年 难度-分值占比', file: '2017-2026年 难度-分值占比.png' }
+    ];
 
     const subjects = [
         { key: 'chinese', name: '语文', color: '#52c41a' },
@@ -124,7 +139,6 @@ function LearningStats() {
         // 添加示例数据（如果没有真实数据）
         for (const subject of ['chinese', 'math', 'english']) {
             if (scoresBySubject[subject].length === 0) {
-                // 生成示例数据
                 for (let i = 1; i <= 5; i++) {
                     scoresBySubject[subject].push({
                         testNumber: i,
@@ -170,9 +184,7 @@ function LearningStats() {
     };
 
     const loadRadarData = () => {
-        // 三门学科各一个雷达图数据
         const data = subjects.map(subject => {
-            // 根据学科生成不同的知识点
             let knowledgePoints = [];
             if (subject.key === 'chinese') {
                 knowledgePoints = [
@@ -214,11 +226,9 @@ function LearningStats() {
         for (let i = 6; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
-            // 从 localStorage 读取真实学习时长（如果有）
             const dateKey = `study_${date.toISOString().split('T')[0]}`;
             let minutes = parseInt(localStorage.getItem(dateKey)) || 0;
             if (minutes === 0) {
-                // 模拟数据
                 minutes = Math.floor(Math.random() * 60) + 20;
             }
             last7Days.push({
@@ -230,21 +240,18 @@ function LearningStats() {
     };
 
     const loadKnowledgeHeatmap = () => {
-        // 知识点热图数据（按年份）
         const years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
         const topics = ['函数', '几何', '概率', '数列', '三角', '向量', '不等式', '导数'];
         
         const heatmapData = years.map(year => {
             const row = { year };
             topics.forEach(topic => {
-                // 模拟数据，实际需要从真题中统计
                 row[topic] = Math.floor(Math.random() * 15);
             });
             return row;
         });
         setKnowledgeHeatmap(heatmapData);
         
-        // 上升趋势知识点
         const trending = [
             { name: '导数', increase: '+8分', trend: 'up' },
             { name: '概率统计', increase: '+6分', trend: 'up' },
@@ -255,15 +262,14 @@ function LearningStats() {
         setTrendingTopics(trending);
     };
 
-    // 概览卡片
-    const totalCompleted = subjectProgress.reduce((sum, s) => sum + s.completed, 0);
-    const totalTopics = subjectProgress.reduce((sum, s) => sum + s.total, 0);
-    const avgProgress = subjectProgress.length > 0 
-        ? Math.round(subjectProgress.reduce((sum, s) => sum + s.value, 0) / subjectProgress.length) 
-        : 0;
-
-    // 饼图
+    // ==================== 原有图表渲染函数 ====================
     const renderProgressChart = () => {
+        const totalCompleted = subjectProgress.reduce((sum, s) => sum + s.completed, 0);
+        const totalTopics = subjectProgress.reduce((sum, s) => sum + s.total, 0);
+        const avgProgress = subjectProgress.length > 0 
+            ? Math.round(subjectProgress.reduce((sum, s) => sum + s.value, 0) / subjectProgress.length) 
+            : 0;
+
         return (
             <div>
                 <div style={{
@@ -332,7 +338,6 @@ function LearningStats() {
         );
     };
 
-    // 成绩趋势图
     const renderTrendChart = () => {
         return (
             <div>
@@ -396,7 +401,6 @@ function LearningStats() {
         );
     };
 
-    // 雷达图 - 三门学科各一个
     const renderRadarChart = () => {
         return (
             <div>
@@ -432,7 +436,6 @@ function LearningStats() {
         );
     };
 
-    // 学习时长柱状图
     const renderBarChart = () => {
         const totalMinutes = dailyStudyTime.reduce((sum, d) => sum + d.minutes, 0);
         const avgMinutes = Math.round(totalMinutes / dailyStudyTime.length);
@@ -467,7 +470,6 @@ function LearningStats() {
         );
     };
 
-    // 知识点热图 - 按学科分开
     const renderHeatmap = () => {
         const topics = {
             math: ['函数', '几何', '概率', '数列', '三角', '向量', '不等式', '导数'],
@@ -482,13 +484,11 @@ function LearningStats() {
             return '#d9f0be';
         };
 
-        // 获取当前学科的热图数据
         const getHeatmapData = () => {
             const years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
             return years.map(year => {
                 const row = { year };
                 topics[heatmapSubject].forEach(topic => {
-                    // 模拟数据，后续从真题统计中获取
                     if (heatmapSubject === 'math') {
                         if (topic === '函数') row[topic] = 8 + Math.floor(Math.random() * 10);
                         else if (topic === '几何') row[topic] = 6 + Math.floor(Math.random() * 8);
@@ -511,7 +511,6 @@ function LearningStats() {
         const heatmapData = getHeatmapData();
         const currentTopics = topics[heatmapSubject];
 
-        // 计算趋势知识点
         const getTrendingTopics = () => {
             if (heatmapSubject === 'math') {
                 return [
@@ -532,13 +531,12 @@ function LearningStats() {
             }
         };
 
-        const trendingTopics = getTrendingTopics();
+        const trendingTopicsLocal = getTrendingTopics();
 
         return (
             <div>
                 <h3>🔥 知识点分值分布热图（2017-2026）</h3>
 
-                {/* 学科切换 */}
                 <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', justifyContent: 'center' }}>
                     <button
                         onClick={() => setHeatmapSubject('math')}
@@ -584,7 +582,6 @@ function LearningStats() {
                     </button>
                 </div>
 
-                {/* 热图表格 */}
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '12px' }}>
                         <thead>
@@ -618,7 +615,6 @@ function LearningStats() {
                     </table>
                 </div>
 
-                {/* 图例 */}
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '16px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#f5222d' }}></div><span>≥12分</span></div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#fa8c16' }}></div><span>8-11分</span></div>
@@ -626,11 +622,10 @@ function LearningStats() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#d9f0be' }}></div><span>1-3分</span></div>
                 </div>
 
-                {/* 趋势知识点 */}
                 <div style={{ marginTop: '24px' }}>
                     <h4>📈 分值呈上升趋势的知识点</h4>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '12px' }}>
-                        {trendingTopics.map(topic => (
+                        {trendingTopicsLocal.map(topic => (
                             <div key={topic.name} style={{
                                 padding: '8px 16px',
                                 background: '#f6ffed',
@@ -656,12 +651,99 @@ function LearningStats() {
         );
     };
 
+    // ==================== 新增：命题分析图表渲染 ====================
+    const renderAnalysisCharts = () => {
+        return (
+            <div>
+                <h3>📊 命题规律可视化分析</h3>
+                <p style={{ color: '#666', marginBottom: '20px' }}>
+                    基于2017-2026年上海春考真题生成的考点趋势、难度预测及分值分布图。
+                </p>
+
+                {/* 学科切换按钮 */}
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '30px', justifyContent: 'center' }}>
+                    {Object.entries(subjectMap).map(([key, val]) => (
+                        <button
+                            key={key}
+                            onClick={() => setAnalysisSubject(key)}
+                            style={{
+                                padding: '8px 24px',
+                                background: analysisSubject === key ? '#1890ff' : '#f0f0f0',
+                                color: analysisSubject === key ? 'white' : '#333',
+                                border: 'none',
+                                borderRadius: '24px',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: analysisSubject === key ? 'bold' : 'normal',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            {val.name}
+                        </button>
+                    ))}
+                </div>
+
+                {/* 五张图表展示 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
+                    {chartList.map(chart => {
+                        const imgUrl = `http://localhost:3001/analysis/${subjectMap[analysisSubject].folder}/${encodeURIComponent(chart.file)}`;
+                        return (
+                            <div key={chart.key} style={{
+                                background: 'white',
+                                borderRadius: '12px',
+                                padding: '20px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                border: '1px solid #f0f0f0'
+                            }}>
+                                <h4 style={{ margin: '0 0 16px 0', color: '#333', borderLeft: `4px solid ${analysisSubject === 'math' ? '#1890ff' : analysisSubject === 'chinese' ? '#52c41a' : '#fa8c16'}`, paddingLeft: '12px' }}>
+                                    {chart.title}
+                                </h4>
+                                <div style={{ textAlign: 'center' }}>
+                                    <img
+                                        src={imgUrl}
+                                        alt={chart.title}
+                                        style={{
+                                            maxWidth: '100%',
+                                            height: 'auto',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
+                                        }}
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            const parent = e.target.parentElement;
+                                            if (parent && !parent.querySelector('.error-msg')) {
+                                                const errorDiv = document.createElement('div');
+                                                errorDiv.className = 'error-msg';
+                                                errorDiv.style.padding = '40px';
+                                                errorDiv.style.background = '#fff1f0';
+                                                errorDiv.style.borderRadius = '8px';
+                                                errorDiv.style.color = '#ff4d4f';
+                                                errorDiv.innerHTML = `❌ 图片加载失败<br/>请检查文件是否存在：<br/>${imgUrl}`;
+                                                parent.appendChild(errorDiv);
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div style={{ marginTop: '30px', fontSize: '12px', color: '#999', padding: '12px', background: '#f5f5f5', borderRadius: '8px' }}>
+                    💡 提示：图片由 Python 脚本生成，存放于 <code>data/analysis/学科/</code> 目录。如无法显示，请确认后端已配置静态服务（<code>/analysis</code> 路由）且文件存在。
+                </div>
+            </div>
+        );
+    };
+
+    // 选项卡配置（新增 "命题分析"）
     const tabs = [
         { key: 'progress', label: '学习进度', icon: '📊' },
         { key: 'trend', label: '成绩趋势', icon: '📈' },
         { key: 'radar', label: '掌握度雷达', icon: '🎯' },
         { key: 'time', label: '学习时长', icon: '⏰' },
-        { key: 'heatmap', label: '知识点热图', icon: '🔥' }
+        { key: 'heatmap', label: '知识点热图', icon: '🔥' },
+        { key: 'analysis', label: '命题分析', icon: '📉' }
     ];
 
     return (
@@ -706,6 +788,7 @@ function LearningStats() {
                 {activeTab === 'radar' && renderRadarChart()}
                 {activeTab === 'time' && renderBarChart()}
                 {activeTab === 'heatmap' && renderHeatmap()}
+                {activeTab === 'analysis' && renderAnalysisCharts()}
             </div>
         </div>
     );
