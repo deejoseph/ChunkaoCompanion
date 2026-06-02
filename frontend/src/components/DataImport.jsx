@@ -80,6 +80,12 @@ function DataImport() {
     const [knowledgeJsonDraft, setKnowledgeJsonDraft] = useState('');
     const [knowledgeLoading, setKnowledgeLoading] = useState(false);
     const [lastCorrectedText, setLastCorrectedText] = useState('');
+    const [knowledgeJsonFile, setKnowledgeJsonFile] = useState(null);
+    const [questionBankJsonFile, setQuestionBankJsonFile] = useState(null);
+    const [clearKnowledgeBeforeImport, setClearKnowledgeBeforeImport] = useState(false);
+    const [knowledgeJsonPreview, setKnowledgeJsonPreview] = useState(null);
+    const [questionBankJsonPreview, setQuestionBankJsonPreview] = useState(null);
+    const [jsonPreviewError, setJsonPreviewError] = useState('');
 
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
@@ -161,6 +167,51 @@ function DataImport() {
         const value = String(text || '').trim();
         const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
         return (fenced ? fenced[1] : value).trim();
+    };
+
+    const readJsonFile = (selectedFile) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                resolve(JSON.parse(String(reader.result || '')));
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+        reader.readAsText(selectedFile, 'utf-8');
+    });
+
+    const summarizeKnowledgeJson = (data, selectedFile) => {
+        const system = data?.考点体系 || {};
+        const analysis = data?.命题分析 || {};
+        return {
+            fileName: selectedFile.name,
+            title: data?.专题 || selectedFile.name.replace(/\.json$/i, ''),
+            checkpointCount: Object.keys(system).length,
+            analysisCount: Object.keys(analysis).length,
+            sampleItems: Object.keys(system).slice(0, 6)
+        };
+    };
+
+    const summarizeQuestionBankJson = (data, selectedFile) => {
+        const bank = data?.bank || data?.questionBank || data || {};
+        const sections = Array.isArray(bank.sections) ? bank.sections : [];
+        const questionsList = Array.isArray(bank.questions)
+            ? bank.questions
+            : Array.isArray(bank.items)
+                ? bank.items
+                : sections.flatMap(section => section.questions || []);
+        const examInfo = bank.exam_info || bank.examInfo || {};
+        return {
+            fileName: selectedFile.name,
+            title: bank.title || bank.name || bank.paperTitle || examInfo.title || selectedFile.name.replace(/\.json$/i, ''),
+            subject: bank.subject || bank.subjectId || bank.subject_id || (String(examInfo.title || '').includes('数学') ? 'math' : '-'),
+            version: bank.version || bank.versionId || bank.version_id || '-',
+            year: bank.year || examInfo.year || '-',
+            questionCount: questionsList.length,
+            sampleItems: questionsList.slice(0, 5).map((q, index) => `${q.number || index + 1}. ${String(q.content || q.question || q.stem || '').slice(0, 36)}`)
+        };
     };
 
     const getValidationModels = () => {
@@ -435,6 +486,177 @@ ${knowledgeRawText.slice(0, 12000)}`;
             setKnowledgeLoading(false);
         }
     };
+
+    const importKnowledgeJsonFile = async () => {
+        if (!knowledgeJsonFile) {
+            alert('请先选择知识点 JSON 文件');
+            return;
+        }
+        if (!knowledgeJsonPreview) {
+            alert('请先预览并确认 JSON 内容');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', knowledgeJsonFile);
+        formData.append('subject', getActualSubject());
+        formData.append('version', getActualVersion());
+        formData.append('clearExisting', clearKnowledgeBeforeImport ? 'true' : 'false');
+
+        setKnowledgeLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/knowledge/import-json', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (response.data.success) {
+                const summary = response.data.summary || {};
+                const skipped = response.data.skipped_files || 0;
+                alert(`知识库 JSON 导入完成\n导入文件: ${response.data.imported_files || 0}\n跳过文件: ${skipped}\n专题数: ${summary.topics ?? '-'}\n知识点数: ${summary.knowledge_points ?? '-'}`);
+                if (skipped > 0) {
+                    console.warn('知识库 JSON 导入跳过项:', response.data.skipped);
+                }
+            } else {
+                alert('导入失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (err) {
+            console.error('导入知识库 JSON 失败:', err);
+            alert('导入失败: ' + (err.response?.data?.error || err.message || err));
+        } finally {
+            setKnowledgeLoading(false);
+        }
+    };
+
+    const importQuestionBankJsonFile = async () => {
+        if (!questionBankJsonFile) {
+            alert('请先选择题库 JSON 文件');
+            return;
+        }
+        if (!questionBankJsonPreview) {
+            alert('请先预览并确认 JSON 内容');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', questionBankJsonFile);
+
+        setParsing(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/banks/import-json', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (response.data.success) {
+                alert(`题库 JSON 导入完成\n题库: ${response.data.title}\n题目数: ${response.data.totalQuestions}\nID: ${response.data.bankId}`);
+                loadBanks();
+            } else {
+                alert('导入失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (err) {
+            console.error('导入题库 JSON 失败:', err);
+            alert('导入失败: ' + (err.response?.data?.error || err.message || err));
+        } finally {
+            setParsing(false);
+        }
+    };
+
+    const previewKnowledgeJsonFile = async (selectedFile) => {
+        setKnowledgeJsonFile(selectedFile);
+        setKnowledgeJsonPreview(null);
+        setJsonPreviewError('');
+        if (!selectedFile) return;
+
+        try {
+            const parsed = await readJsonFile(selectedFile);
+            setKnowledgeJsonPreview(summarizeKnowledgeJson(parsed, selectedFile));
+        } catch (error) {
+            setJsonPreviewError(`知识库 JSON 解析失败：${error.message}`);
+        }
+    };
+
+    const previewQuestionBankJsonFile = async (selectedFile) => {
+        setQuestionBankJsonFile(selectedFile);
+        setQuestionBankJsonPreview(null);
+        setJsonPreviewError('');
+        if (!selectedFile) return;
+
+        try {
+            const parsed = await readJsonFile(selectedFile);
+            setQuestionBankJsonPreview(summarizeQuestionBankJson(parsed, selectedFile));
+        } catch (error) {
+            setJsonPreviewError(`题库 JSON 解析失败：${error.message}`);
+        }
+    };
+
+    const renderJsonImportPanel = ({
+        title,
+        description,
+        file,
+        preview,
+        onFileChange,
+        onImport,
+        disabled,
+        accent = '#13c2c2',
+        extraControls = null
+    }) => (
+        <div style={{
+            border: `1px solid ${accent}`,
+            background: preview ? '#f6fffb' : '#e6fffb',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '20px',
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            boxShadow: '0 2px 8px rgba(19, 194, 194, 0.12)'
+        }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ minWidth: 0, flex: '1 1 280px' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#006d75' }}>{title}</div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>{description}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', flex: '1 1 360px', minWidth: 0 }}>
+                    <input
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(e) => onFileChange(e.target.files?.[0] || null)}
+                        style={{ maxWidth: '260px' }}
+                    />
+                    {extraControls}
+                    <button
+                        onClick={onImport}
+                        disabled={disabled || !file || !preview}
+                        style={{ padding: '6px 16px', background: file && preview && !disabled ? accent : '#ccc', color: 'white', border: 'none', borderRadius: '4px', cursor: file && preview && !disabled ? 'pointer' : 'not-allowed' }}
+                    >
+                        确认导入数据库
+                    </button>
+                </div>
+            </div>
+            {file && !preview && !jsonPreviewError && (
+                <div style={{ marginTop: '10px', fontSize: '12px', color: '#999' }}>正在准备预览...</div>
+            )}
+            {preview && (
+                <div style={{ marginTop: '12px', padding: '10px', background: '#fff', borderRadius: '6px', border: '1px solid #e8e8e8' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', fontSize: '13px' }}>
+                        <div><strong>文件：</strong>{preview.fileName}</div>
+                        <div><strong>标题：</strong>{preview.title}</div>
+                        {preview.subject && <div><strong>学科：</strong>{preview.subject}</div>}
+                        {preview.version && <div><strong>版本：</strong>{preview.version}</div>}
+                        {preview.year && <div><strong>年份：</strong>{preview.year}</div>}
+                        {preview.checkpointCount !== undefined && <div><strong>考点：</strong>{preview.checkpointCount}</div>}
+                        {preview.analysisCount !== undefined && <div><strong>命题分析：</strong>{preview.analysisCount}</div>}
+                        {preview.questionCount !== undefined && <div><strong>题目：</strong>{preview.questionCount}</div>}
+                    </div>
+                    {preview.sampleItems?.length > 0 && (
+                        <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                            <strong>预览：</strong>{preview.sampleItems.join(' / ')}
+                        </div>
+                    )}
+                </div>
+            )}
+            {jsonPreviewError && (
+                <div style={{ marginTop: '10px', color: '#f5222d', fontSize: '12px' }}>{jsonPreviewError}</div>
+            )}
+        </div>
+    );
 
     const getBanksBySubject = () => {
         const grouped = {};
@@ -1542,6 +1764,27 @@ ${knowledgeRawText.slice(0, 12000)}`;
                 </div>
             </div>
 
+            {renderJsonImportPanel({
+                title: '上传 JSON 生成知识库',
+                description: '推荐入口：先解析并预览专题、考点和命题分析摘要，确认后写入树状知识图谱。',
+                file: knowledgeJsonFile,
+                preview: knowledgeJsonPreview,
+                onFileChange: previewKnowledgeJsonFile,
+                onImport: importKnowledgeJsonFile,
+                disabled: knowledgeLoading,
+                accent: '#13c2c2',
+                extraControls: (
+                    <label style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input
+                            type="checkbox"
+                            checked={clearKnowledgeBeforeImport}
+                            onChange={(e) => setClearKnowledgeBeforeImport(e.target.checked)}
+                        />
+                        清空后导入
+                    </label>
+                )
+            })}
+
             <div style={{
                 background: '#f5f5f5',
                 padding: '20px',
@@ -1716,6 +1959,17 @@ ${knowledgeRawText.slice(0, 12000)}`;
                 defaultAnalysisMarker={analysisMarker}
                 defaultQuestionPattern={questionPattern}
             />
+
+            {renderJsonImportPanel({
+                title: '上传 JSON 生成题库',
+                description: '推荐入口：先解析并预览题库标题、学科版本和题目数量，确认后写入 SQLite 题库。',
+                file: questionBankJsonFile,
+                preview: questionBankJsonPreview,
+                onFileChange: previewQuestionBankJsonFile,
+                onImport: importQuestionBankJsonFile,
+                disabled: parsing,
+                accent: '#13c2c2'
+            })}
             
             {/* 工具栏 */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>

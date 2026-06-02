@@ -34,6 +34,175 @@ function parseJsonField(value, fallback = {}) {
     }
 }
 
+function stableImportId(value, fallback = 'bank') {
+    return String(value || fallback)
+        .trim()
+        .replace(/\.[a-z0-9]+$/i, '')
+        .replace(/[^\w\u4e00-\u9fff-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 120) || fallback;
+}
+
+function inferSubjectFromText(value) {
+    const text = String(value || '');
+    if (/数学|math/i.test(text)) return 'math';
+    if (/英语|english/i.test(text)) return 'english';
+    if (/语文|chinese/i.test(text)) return 'chinese';
+    return null;
+}
+
+function formatOptions(options) {
+    if (!Array.isArray(options) || options.length === 0) return '';
+    return `\n${options.map(option => String(option)).join('\n')}`;
+}
+
+function sumSubQuestionScores(subQuestions = []) {
+    return subQuestions.reduce((total, subQuestion) => {
+        const score = Number(subQuestion.score ?? subQuestion.points ?? 0);
+        return Number.isFinite(score) ? total + score : total;
+    }, 0);
+}
+
+function normalizeShanghaiMathScore(sectionType, parentId, question = {}) {
+    const numericId = Number(parentId);
+    const subQuestions = Array.isArray(question.sub_questions) ? question.sub_questions : [];
+
+    if (sectionType === 'fill_in_the_blank' && Number.isFinite(numericId)) {
+        return numericId <= 6 ? 4 : 5;
+    }
+
+    if (sectionType === 'multiple_choice') {
+        return 5;
+    }
+
+    if (sectionType === 'essay' && Number.isFinite(numericId)) {
+        const essayScores = {
+            17: 14,
+            18: 14,
+            19: 14,
+            20: 16,
+            21: 18
+        };
+        if (essayScores[numericId] != null) {
+            return essayScores[numericId];
+        }
+    }
+
+    if (question.total_score != null) {
+        return question.total_score;
+    }
+
+    const subScore = sumSubQuestionScores(subQuestions);
+    if (subScore > 0) {
+        return subScore;
+    }
+
+    return question.score ?? question.points ?? null;
+}
+
+function flattenSectionQuestions(sections = []) {
+    const flattened = [];
+    for (const section of sections) {
+        const sectionType = section.type || 'qa';
+        const sectionDescription = section.description || '';
+        for (const question of section.questions || []) {
+            const parentId = question.id || flattened.length + 1;
+            const subQuestions = Array.isArray(question.sub_questions) ? question.sub_questions : [];
+            const subQuestionText = subQuestions.map(subQuestion => {
+                const part = subQuestion.part || subQuestion.id || '';
+                return [
+                    `(${part}) ${subQuestion.content || ''}`.trim(),
+                    subQuestion.answer ? `答案：${subQuestion.answer}` : '',
+                    subQuestion.analysis ? `解析：${subQuestion.analysis}` : ''
+                ].filter(Boolean).join('\n');
+            }).join('\n\n');
+            const parentContent = [
+                question.title ? `【${question.title}】` : '',
+                question.content || '',
+                subQuestionText,
+                formatOptions(question.options)
+            ].filter(Boolean).join('\n');
+
+            flattened.push({
+                id: `q${parentId}`,
+                number: flattened.length + 1,
+                originalNumber: parentId,
+                type: sectionType === 'essay' ? 'qa' : sectionType,
+                content: parentContent,
+                sourceAnswer: question.sourceAnswer || question.source_answer || question.answer || subQuestions.map(subQuestion => {
+                    const part = subQuestion.part || subQuestion.id || '';
+                    return `(${part}) ${subQuestion.answer || ''}`.trim();
+                }).filter(Boolean).join('\n'),
+                finalAnswer: question.finalAnswer || question.final_answer || '',
+                analysis: question.analysis || question.explanation || subQuestions.map(subQuestion => {
+                    const part = subQuestion.part || subQuestion.id || '';
+                    return `(${part}) ${subQuestion.analysis || ''}`.trim();
+                }).filter(Boolean).join('\n'),
+                score: normalizeShanghaiMathScore(sectionType, parentId, question),
+                difficulty: question.difficulty || '',
+                pageNumber: question.pageNumber || question.page_number || null,
+                images: question.images || [],
+                image: question.image || question.imagePath || question.image_path || '',
+                knowledgePoints: question.knowledgePoints || question.knowledge_points || [],
+                sectionType,
+                sectionDescription
+            });
+        }
+    }
+    return flattened;
+}
+
+function normalizeQuestionBankPayload(payload, originalName = 'question_bank.json') {
+    const data = payload || {};
+    const bank = data.bank || data.questionBank || data;
+    const examInfo = bank.exam_info || bank.examInfo || {};
+    const year = bank.year || examInfo.year || null;
+    const title = bank.title || bank.name || bank.paperTitle || examInfo.title || path.basename(originalName, path.extname(originalName));
+    const subject = bank.subject || bank.subjectId || bank.subject_id || inferSubjectFromText(`${title} ${examInfo.location || ''}`);
+    const paperId = stableImportId(bank.paperId || bank.id || bank.bankId || (year && subject ? `${subject}_${year}_${title}` : title), 'json_bank');
+    const rawQuestions = Array.isArray(bank.questions)
+        ? bank.questions
+        : Array.isArray(bank.items)
+            ? bank.items
+            : Array.isArray(bank.sections)
+                ? flattenSectionQuestions(bank.sections)
+                : [];
+
+    return {
+        paperId,
+        title,
+        sourceTitle: bank.sourceTitle || bank.source_title || title,
+        subject,
+        version: bank.version || bank.versionId || bank.version_id || '2026',
+        sourcePath: bank.sourcePath || bank.source_path || '',
+        sourceFormat: bank.sourceFormat || bank.source_format || 'json',
+        paperType: bank.paperType || bank.paper_type || 'exam',
+        year,
+        knowledgePoints: bank.knowledgePoints || bank.knowledge_points || [],
+        totalQuestions: rawQuestions.length,
+        questions: rawQuestions.map((q, index) => ({
+            id: q.id || q.questionId || q.question_id || `q${index + 1}`,
+            number: q.number || q.no || index + 1,
+            originalNumber: q.originalNumber || q.original_number || q.no || q.number || `q${index + 1}`,
+            type: q.type || q.questionType || q.question_type || 'qa',
+            content: q.content || q.question || q.stem || q.title || '',
+            sourceAnswer: q.sourceAnswer || q.source_answer || q.answer || '',
+            finalAnswer: q.finalAnswer || q.final_answer || '',
+            myAnswer: q.myAnswer || q.my_answer || '',
+            peerAnswers: q.peerAnswers || q.peer_answers || {},
+            aiAnswers: q.aiAnswers || q.ai_answers || {},
+            discussion: q.discussion || '',
+            analysis: q.analysis || q.explanation || '',
+            score: q.score ?? q.points ?? q.point ?? null,
+            difficulty: q.difficulty || '',
+            pageNumber: q.pageNumber || q.page_number || null,
+            image: q.image || q.imagePath || q.image_path || '',
+            images: q.images || [],
+            knowledgePoints: q.knowledgePoints || q.knowledge_points || []
+        }))
+    };
+}
+
 async function openDb() {
     return open({
         filename: DB_PATH,
@@ -77,6 +246,38 @@ router.post('/upload-asset', upload.single('file'), async (req, res) => {
         console.error('upload-asset error:', error);
         if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 上传题库 JSON 并写入 SQLite，同时生成 JSON 备份。
+router.post('/import-json', upload.single('file'), async (req, res) => {
+    const file = req.file;
+    if (!file) return res.status(400).json({ success: false, error: 'No JSON file uploaded' });
+
+    try {
+        const raw = fs.readFileSync(file.path, 'utf-8');
+        const payload = JSON.parse(raw);
+        const bank = normalizeQuestionBankPayload(payload, file.originalname);
+
+        if (!bank.title || bank.questions.length === 0) {
+            return res.status(400).json({ success: false, error: '题库 JSON 缺少 title 或 questions' });
+        }
+
+        const { saveParsedBank } = require('../services/saveParsedBank');
+        const result = await saveParsedBank({ dbFile: DB_PATH, bank });
+
+        res.json({
+            success: true,
+            bankId: bank.paperId,
+            title: bank.title,
+            totalQuestions: bank.questions.length,
+            jsonPath: path.relative(path.join(__dirname, '../..'), result.jsonPath).replace(/\\/g, '/')
+        });
+    } catch (error) {
+        console.error('import question bank json error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    } finally {
+        if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
     }
 });
 

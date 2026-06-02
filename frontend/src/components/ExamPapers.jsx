@@ -367,7 +367,7 @@ function ExamPapers() {
                                 src={paperUrl}
                                 style={{
                                     width: '100%',
-                                    height: '70vh',
+                                    height: '84vh',
                                     border: 'none'
                                 }}
                                 title={selectedPaper.name}

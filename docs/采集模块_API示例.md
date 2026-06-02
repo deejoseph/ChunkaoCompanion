@@ -107,3 +107,68 @@ curl -X POST http://localhost:3000/api/banks/save \
 ---
 
 如果你希望我把这些示例加入到 README 或前端调用示例中，我可以同步更新 `frontend` 的调用示例代码片段。
+
+---
+
+## 3) POST /api/knowledge/import-json
+
+- 路径: `/api/knowledge/import-json`
+- 方法: `POST`
+- 类型: `multipart/form-data`
+- 描述: 上传单个知识点 JSON，写入 `topics`、`knowledge_points`、`topic_knowledge_points`、`knowledge_nodes`、`exam_insights`、`source_files`。
+
+表单字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `file` | JSON 文件 |
+| `subject` | `chinese` / `math` / `english` |
+| `version` | 默认 `2026` |
+| `clearExisting` | 可选，`true` 时先清空知识库/题库相关表再导入 |
+
+```bash
+curl -X POST http://localhost:3001/api/knowledge/import-json \
+  -F "subject=chinese" \
+  -F "version=2026" \
+  -F "file=@data/docs/chinese/2026/专题01 名篇名句默写.json"
+```
+
+---
+
+## 4) POST /api/banks/import-json
+
+- 路径: `/api/banks/import-json`
+- 方法: `POST`
+- 类型: `multipart/form-data`
+- 描述: 上传题库 JSON，写入 `question_banks`、`questions`，并把图片路径写入 `question_assets`，把可匹配的知识点写入 `question_knowledge_points`。
+
+支持题目字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `score` / `points` | 分值 |
+| `image` / `imagePath` / `images` | 图片路径或图片对象数组 |
+| `knowledgePoints` / `knowledge_points` | 题目关联知识点名称 |
+| `difficulty` | 难度 |
+
+```json
+{
+  "paperId": "math_2026_sample",
+  "title": "2026 数学样例题库",
+  "subject": "math",
+  "version": "2026",
+  "questions": [
+    {
+      "id": "q1",
+      "number": 1,
+      "type": "fill",
+      "content": "已知集合 A=...",
+      "sourceAnswer": "...",
+      "score": 5,
+      "difficulty": "medium",
+      "images": [{ "filePath": "data/question_assets/math_2026_sample/q1.png" }],
+      "knowledgePoints": ["集合运算"]
+    }
+  ]
+}
+```

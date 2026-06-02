@@ -4,6 +4,8 @@ const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'python';
@@ -11,6 +13,8 @@ const INIT_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/init_knowledge_db.p
 const QUERY_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/query_knowledge_db.py');
 const IMPORT_BANKS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_question_banks.py');
 const LINK_QUESTION_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/link_question_knowledge.py');
+const REBUILD_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/rebuild_knowledge_from_json.py');
+const upload = multer({ dest: path.join(PROJECT_ROOT, 'temp_uploads') });
 
 function normalizeTitle(title = '') {
     return String(title)
@@ -134,6 +138,53 @@ router.post('/link-question-knowledge', async (req, res) => {
             error: error.message,
             stderr: error.stderr
         });
+    }
+});
+
+// 上传单个知识点 JSON，写入树状知识图谱相关表。
+router.post('/import-json', upload.single('file'), async (req, res) => {
+    const file = req.file;
+    const subject = req.body?.subject || 'chinese';
+    const version = req.body?.version || '2026';
+    const clearExisting = req.body?.clearExisting === 'true' || req.body?.clearExisting === true;
+
+    if (!file) {
+        return res.status(400).json({ success: false, error: 'No JSON file uploaded' });
+    }
+
+    try {
+        let preferredName = file.originalname || 'knowledge.json';
+        try {
+            const uploadedJson = JSON.parse(fs.readFileSync(file.path, 'utf-8'));
+            if (uploadedJson?.专题 && !String(preferredName).includes(uploadedJson.专题)) {
+                preferredName = `专题00 ${uploadedJson.专题}.json`;
+            }
+        } catch (parseError) {
+            // Let the Python importer return the final JSON parse error.
+        }
+
+        const safeOriginalName = String(preferredName)
+            .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+        const importPath = path.join(path.dirname(file.path), safeOriginalName);
+        if (fs.existsSync(importPath)) fs.unlinkSync(importPath);
+        fs.renameSync(file.path, importPath);
+        file.path = importPath;
+
+        const result = await runPython(REBUILD_KNOWLEDGE_SCRIPT, [
+            '--version', version,
+            '--subject', subject,
+            '--input-files', file.path,
+            ...(clearExisting ? ['--clear-existing'] : [])
+        ]);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr
+        });
+    } finally {
+        if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
     }
 });
 

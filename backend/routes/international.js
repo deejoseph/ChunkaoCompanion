@@ -260,4 +260,4 @@ router.get(/^\/subtitle\/([^\/]+)\/(.+)$/, async (req, res) => {
     }
 });
 
-module.exports = router;
+module.exports = router
