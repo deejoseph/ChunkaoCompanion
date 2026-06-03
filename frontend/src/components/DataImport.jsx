@@ -1150,7 +1150,6 @@ ${knowledgeRawText.slice(0, 12000)}`;
         setShowPromptModal(true);
     };
     
-    // 执行单题验证 - 方案A：自动填入最终答案
     const executeValidation = async () => {
         if (!currentValidatingQuestion) return;
 
@@ -1168,13 +1167,26 @@ ${knowledgeRawText.slice(0, 12000)}`;
 
             if (response.data.success) {
                 const suggestedAnswer = response.data.suggestedAnswer || getAISuggestedAnswer(response.data.answers);
-                
-                updateQuestion(currentValidatingQuestion.id, 'aiAnswers', response.data.answers);
-                updateQuestion(currentValidatingQuestion.id, 'verdict', response.data.verdict);
-                updateQuestion(currentValidatingQuestion.id, 'aiSuggestedAnswer', suggestedAnswer);
-                updateQuestion(currentValidatingQuestion.id, 'finalAnswer', suggestedAnswer);
+                const discussionText = `AI 讨论记录：\n${Object.entries(response.data.answers).map(([model, ans]) => `${getModelNickname(model)}: ${ans}`).join('\n')}\n综合判断：${response.data.verdict === 'correct' ? '答案正确' : response.data.verdict === 'maybe_correct' ? '可能正确' : '答案有误'}，建议答案：${suggestedAnswer}`;
 
-                alert(`验证完成！\nAI建议答案：${suggestedAnswer || '未识别'}\n已自动填入「最终答案」，请核对修改。`);
+                // 一次性更新所有字段
+                setQuestions(prev => prev.map(q => {
+                    if (q.id === currentValidatingQuestion.id) {
+                        return {
+                            ...q,
+                            aiAnswers: response.data.answers,
+                            verdict: response.data.verdict,
+                            aiSuggestedAnswer: suggestedAnswer,
+                            finalAnswer: suggestedAnswer,
+                            discussion: discussionText,
+                            peerAnswers: response.data.answers
+                        };
+                    }
+                    return q;
+                }));
+                setAnswersReviewed(false);
+
+                alert(`验证完成！\nAI建议答案：${suggestedAnswer || '未识别'}\n已自动填入「最终答案」和「讨论记录」，请核对修改。`);
             } else {
                 alert('验证失败: ' + (response.data.error || '未知错误'));
             }
@@ -1218,7 +1230,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
         setShowPromptModal(true);
     };
     
-    // 执行批量验证 - 修复版
+    // 执行批量验证 - 修复版（包含讨论记录同步）
     const executeBatchValidation = async () => {
         setShowPromptModal(false);
         setBulkValidating(true);
@@ -1227,11 +1239,9 @@ ${knowledgeRawText.slice(0, 12000)}`;
         let updatedQuestions = [...questions];
 
         for (let i = 0; i < batchQuestions.length; i++) {
-            // 在循环开始时更新进度
+            // 更新进度提示
             const progress = Math.round(((i + 1) / batchQuestions.length) * 100);
-            setBulkValidationResults(prev => [...prev.slice(0, -1), { 
-                ...prev[prev.length - 1],  
-            }]);
+            setBulkValidationResults(prev => [...prev.slice(0, -1), { ...(prev[prev.length - 1] || {}) }]);
             
             const q = batchQuestions[i];
 
@@ -1266,7 +1276,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
             try {
                 const response = await axios.post('http://localhost:3001/api/ai/validate', {
                     subject: getActualSubject(),
-                    question: cleanContent,  // 只传清理后的内容
+                    question: cleanContent,
                     questionType: q.type,
                     instruction: questionPrompt,
                     models: getValidationModels()
@@ -1274,6 +1284,9 @@ ${knowledgeRawText.slice(0, 12000)}`;
 
                 if (response.data.success) {
                     const suggestedAnswer = response.data.suggestedAnswer || getAISuggestedAnswer(response.data.answers);
+                    
+                    // 生成讨论记录
+                    const discussionText = `AI 讨论记录：\n${Object.entries(response.data.answers).map(([model, ans]) => `${getModelNickname(model)}: ${ans}`).join('\n')}\n综合判断：${response.data.verdict === 'correct' ? '答案正确' : response.data.verdict === 'maybe_correct' ? '可能正确' : '答案有误'}，建议答案：${suggestedAnswer}`;
 
                     updatedQuestions = updatedQuestions.map(item => {
                         if (item.id === q.id) {
@@ -1282,7 +1295,9 @@ ${knowledgeRawText.slice(0, 12000)}`;
                                 aiAnswers: response.data.answers,
                                 verdict: response.data.verdict,
                                 aiSuggestedAnswer: suggestedAnswer,
-                                finalAnswer: suggestedAnswer
+                                finalAnswer: suggestedAnswer,
+                                discussion: discussionText,
+                                peerAnswers: response.data.answers
                             };
                         }
                         return item;
@@ -1317,7 +1332,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
         setShowBulkResults(true);
         setAnswersReviewed(false);
 
-        alert(`批量验证完成！\n\nAI建议答案已自动填入「最终答案」，请核对修改。`);
+        alert(`批量验证完成！\n\nAI建议答案已自动填入「最终答案」和「讨论记录」，请核对修改。`);
     };
 
     const saveQuestionBank = async () => {

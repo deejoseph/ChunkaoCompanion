@@ -102,51 +102,84 @@ function normalizeShanghaiMathScore(sectionType, parentId, question = {}) {
 
 function flattenSectionQuestions(sections = []) {
     const flattened = [];
+    let globalNumber = 0;
+
     for (const section of sections) {
         const sectionType = section.type || 'qa';
         const sectionDescription = section.description || '';
+        
         for (const question of section.questions || []) {
-            const parentId = question.id || flattened.length + 1;
+            const parentId = question.id || (globalNumber + 1);
             const subQuestions = Array.isArray(question.sub_questions) ? question.sub_questions : [];
-            const subQuestionText = subQuestions.map(subQuestion => {
-                const part = subQuestion.part || subQuestion.id || '';
-                return [
-                    `(${part}) ${subQuestion.content || ''}`.trim(),
-                    subQuestion.answer ? `答案：${subQuestion.answer}` : '',
-                    subQuestion.analysis ? `解析：${subQuestion.analysis}` : ''
-                ].filter(Boolean).join('\n');
-            }).join('\n\n');
-            const parentContent = [
-                question.title ? `【${question.title}】` : '',
-                question.content || '',
-                subQuestionText,
-                formatOptions(question.options)
-            ].filter(Boolean).join('\n');
-
-            flattened.push({
-                id: `q${parentId}`,
-                number: flattened.length + 1,
-                originalNumber: parentId,
-                type: sectionType === 'essay' ? 'qa' : sectionType,
-                content: parentContent,
-                sourceAnswer: question.sourceAnswer || question.source_answer || question.answer || subQuestions.map(subQuestion => {
-                    const part = subQuestion.part || subQuestion.id || '';
-                    return `(${part}) ${subQuestion.answer || ''}`.trim();
-                }).filter(Boolean).join('\n'),
-                finalAnswer: question.finalAnswer || question.final_answer || '',
-                analysis: question.analysis || question.explanation || subQuestions.map(subQuestion => {
-                    const part = subQuestion.part || subQuestion.id || '';
-                    return `(${part}) ${subQuestion.analysis || ''}`.trim();
-                }).filter(Boolean).join('\n'),
-                score: normalizeShanghaiMathScore(sectionType, parentId, question),
-                difficulty: question.difficulty || '',
-                pageNumber: question.pageNumber || question.page_number || null,
-                images: question.images || [],
-                image: question.image || question.imagePath || question.image_path || '',
-                knowledgePoints: question.knowledgePoints || question.knowledge_points || [],
-                sectionType,
-                sectionDescription
-            });
+            
+            if (subQuestions.length === 0) {
+                // 无小题，直接作为一道题目
+                globalNumber++;
+                flattened.push({
+                    id: `q${parentId}`,
+                    number: globalNumber,
+                    originalNumber: parentId,
+                    type: sectionType === 'essay' ? 'qa' : sectionType,
+                    content: question.content || question.title || '',
+                    sourceAnswer: question.sourceAnswer || question.source_answer || question.answer || '',
+                    finalAnswer: question.finalAnswer || question.final_answer || '',
+                    analysis: question.analysis || question.explanation || '',
+                    score: question.score ?? question.points ?? question.total_score ?? null,
+                    difficulty: question.difficulty || '',
+                    pageNumber: question.pageNumber || question.page_number || null,
+                    images: question.images || [],
+                    image: question.image || question.imagePath || question.image_path || '',
+                    knowledgePoints: question.knowledgePoints || question.knowledge_points || [],
+                    sectionType,
+                    sectionDescription,
+                    parentId: null
+                });
+            } else {
+                // 有小题：为每个小题生成独立题目，并尝试自动分配分值
+                const totalParentScore = question.total_score ?? question.score ?? question.points;
+                let avgScore = null;
+                if (totalParentScore && subQuestions.length > 0) {
+                    avgScore = totalParentScore / subQuestions.length;
+                }
+                
+                for (const sub of subQuestions) {
+                    globalNumber++;
+                    const partLabel = sub.part ? `(${sub.part}) ` : '';
+                    const subContent = sub.content || '';
+                    const subAnswer = sub.answer || '';
+                    const subAnalysis = sub.analysis || '';
+                    
+                    // 优先使用子题自带的 score，否则从父题平均分配
+                    let subScore = sub.score ?? sub.points;
+                    if (subScore == null && avgScore != null) {
+                        subScore = parseFloat(avgScore.toFixed(1)); // 保留一位小数
+                        console.warn(`⚠️ 题目 ${parentId}.${sub.part || globalNumber} 缺失 score，已自动分配为 ${subScore}`);
+                    } else if (subScore == null) {
+                        subScore = null;
+                        console.error(`❌ 题目 ${parentId}.${sub.part || globalNumber} 缺失 score 且父题无总分，请手动补充`);
+                    }
+                    
+                    flattened.push({
+                        id: `q${parentId}_p${sub.part || globalNumber}`,
+                        number: globalNumber,
+                        originalNumber: `${parentId}.${sub.part || globalNumber}`,
+                        type: sectionType === 'essay' ? 'qa' : sectionType,
+                        content: `${partLabel}${subContent}`.trim(),
+                        sourceAnswer: subAnswer,
+                        finalAnswer: '',
+                        analysis: subAnalysis,
+                        score: subScore,
+                        difficulty: sub.difficulty || '',
+                        pageNumber: sub.pageNumber || sub.page_number || null,
+                        images: sub.images || [],
+                        image: sub.image || '',
+                        knowledgePoints: sub.knowledgePoints || sub.knowledge_points || [],
+                        sectionType,
+                        sectionDescription,
+                        parentId: parentId
+                    });
+                }
+            }
         }
     }
     return flattened;
@@ -156,8 +189,12 @@ function normalizeQuestionBankPayload(payload, originalName = 'question_bank.jso
     const data = payload || {};
     const bank = data.bank || data.questionBank || data;
     const examInfo = bank.exam_info || bank.examInfo || {};
-    const year = bank.year || examInfo.year || null;
-    const title = bank.title || bank.name || bank.paperTitle || examInfo.title || path.basename(originalName, path.extname(originalName));
+    const year = examInfo.year || bank.year || null;
+    let title = bank.title || bank.name || bank.paperTitle || examInfo.title || path.basename(originalName, path.extname(originalName));
+    // 统一添加年份前缀（如果年份存在且标题开头没有年份）
+    if (year && !title.startsWith(`${year}年`)) {
+        title = `${year}年 ${title}`;
+    }
     const subject = bank.subject || bank.subjectId || bank.subject_id || inferSubjectFromText(`${title} ${examInfo.location || ''}`);
     const paperId = stableImportId(bank.paperId || bank.id || bank.bankId || (year && subject ? `${subject}_${year}_${title}` : title), 'json_bank');
     const rawQuestions = Array.isArray(bank.questions)
@@ -405,9 +442,9 @@ router.get('/list', async (req, res) => {
         const db = await openDb();
         
         const banks = await db.all(
-            `SELECT id, title, subject_id as subject, version_id as version, total_questions as totalQuestions 
+            `SELECT id, title, subject_id as subject, version_id as version, total_questions as totalQuestions, year 
              FROM question_banks 
-             ORDER BY created_at DESC`
+             ORDER BY id ASC`
         );
         
         await db.close();

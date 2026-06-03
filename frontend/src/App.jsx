@@ -12,6 +12,7 @@ import DataImport from './components/DataImport';
 import SideToolPanel from './components/SideToolPanel';
 import InternationalCourses from './components/InternationalCourses';
 import ModelNicknamePanel from './components/ModelNicknamePanel';
+import AnswerSheetFloatingButton from './components/AnswerSheet/AnswerSheetFloatingButton';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
@@ -607,6 +608,8 @@ function App() {
             </div>
         </div>
     )}
+    
+    <AnswerSheetFloatingButton />
     </div>
   );
 }
