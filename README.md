@@ -1,109 +1,122 @@
-# 🎯 春考伴学 (Chunkao Companion)
+# AI伴学（AI Companion Learning）
 
-一个**完全本地部署**的 AI 助教系统，专为上海春季高考设计。只需 8G 显存，即可在本地运行 AI 模型，帮助学生学习语文、数学、英语。
+> ⚠️ 暑期班招生中：我将在暑期开班，教学生如何部署这套系统，让每位学生把自己的学科资料导入进去，从此自己主导学习，不再依赖传统补习班的旧模式。  
+> 想报名的同学请发邮件到：jd1370791@gmail.com  
+> 目前仅有 5 个名额。
 
-## ✨ 功能特点
+AI伴学是一个面向“任何学科、任何知识点”的开放式本地 AI 自学系统。
+它不再局限于上海春考，而是将“资料采集 → 知识图谱 → 真题库 → 学员画像 → 提升建议 → 迭代学习”串成一套闭环的 AI 学习助手。
 
-- **知识点学习** - 按学科/版本浏览专题，支持教师版/学生版切换
-- **AI 助教** - 基于 Ollama + Qwen2.5 的本地 AI，支持语文/数学/英语/作文批改
-- **数学公式渲染** - LaTeX 公式完美显示（KaTeX）
-- **真题模考** - 2017-2026 年上海春考真题 + 模拟卷
-- **英语听力** - 听力音频 + 题目 PDF
-- **学习进度追踪** - 本地存储，自动统计完成率
-- **悬浮 AI 助手** - 随时提问，不影响阅读
-- **OCR 答题卡上传** - 拍照上传，AI 批改（预留接口）
+## 🎯 项目定位
 
-## 🖥️ 硬件要求
+这个系统的目标不是只做一套春考题库，而是构建一套可复用的 AI 伴学平台：
 
-| 配置 | 最低要求 | 推荐配置 |
-|-----|---------|---------|
-| CPU | i5 10代 / R5 3600 | i7 / R7 |
-| 内存 | 16GB | 32GB |
-| 显卡 | RTX 3060 (8GB) | RTX 3070 / 4060 |
-| 硬盘 | 20GB 空闲 | 50GB |
-| 系统 | Windows 10/11 | Windows 11 |
+- 允许你把任意正在学习的教材、讲义、真题、题库资料导入系统；
+- 自动提炼知识点并构建知识图谱；
+- 建立题目与知识点的映射关系；
+- 根据答题与学习表现，生成学员画像；
+- 给出薄弱点、掌握度、复习建议与下一步学习路径；
+- 通过不断迭代，形成一个真正能支撑持续学习的自学系统。
+
+## ✨ 核心能力
+
+- 资料采集与知识点导入
+- 本地 AI 辅助解析与知识点抽取
+- 题目 ↔ 知识点映射
+- 知识图谱可视化
+- 学员画像与掌握度雷达图
+- 薄弱点分析与复习建议
+- 真题库与学习进度管理
+- 可本地部署，不依赖外部云服务
+
+## 🔄 典型闭环流程
+
+1. 导入课程资料、专题、真题或题库；
+2. 从资料中抽取知识点并构建知识图谱；
+3. 把题目与知识点关联起来，形成真题库映射；
+4. 根据学习行为与答题记录生成学员画像；
+5. 输出薄弱点、掌握度、复习建议；
+6. 继续回到资料采集与学习迭代，逐步优化掌握效果。
+
+## 🧩 适用场景
+
+- 课程复习
+- 真题训练
+- 自主学习与知识点梳理
+- 题库与知识图谱一体化管理
+- 教师/学生/学习者的个性化学习分析
+
+## 🖥️ 技术栈
+
+- 前端：React + Vite + Recharts / ECharts
+- 后端：Node.js + Express
+- 数据库：SQLite
+- AI：Ollama + 本地模型
+- 脚本：Python
 
 ## 🚀 快速开始
 
-### 1. 安装 Ollama
+### 1. 安装依赖
 
 ```bash
-# 下载安装 Ollama
-https://ollama.com/download
-
-# 拉取模型
-ollama pull qwen2.5:7b
-ollama pull qwen2.5-coder:7b
-2. 安装 Node.js
-下载安装 Node.js 18+ 版本
-
-3. 克隆项目
-bash
-git clone git@github.com:deejoseph/ChunkaoCompanion.git
-cd ChunkaoCompanion
-4. 安装依赖
-bash
-# 后端
 cd backend
 npm install
 
-# 前端
 cd ../frontend
 npm install
-5. 准备学习资料
-将 Word/PDF 文件放入 data/docs/ 对应目录：
+```
 
-data/docs/chinese/2026/ - 语文2026版专题
+### 2. 启动本地服务
 
-data/docs/math/2026/ - 数学2026版专题
-
-data/docs/english/2026/ - 英语2026版专题
-
-将真题放入 data/exams/ 对应目录
-
-6. 启动服务
-bash
+```bash
 # Windows
 start.bat
 
-# Mac/Linux
-./start.sh
-访问 http://localhost:5173
+# 或在前端目录运行
+cd frontend
+npm run dev
+```
 
-📁 项目结构
-text
+### 3. 访问系统
+
+- 前端：http://localhost:5173
+- 后端：http://localhost:3001
+
+## 📁 项目结构
+
+```text
 ChunkaoCompanion/
-├── backend/          # Node.js + Express 后端
-│   ├── routes/       # API 路由
-│   └── services/     # AI 服务
-├── frontend/         # React + Vite 前端
-│   └── src/
-│       └── components/  # React 组件
-├── data/
-│   ├── docs/         # 知识点文档（按学科/版本）
-│   └── exams/        # 真题 + 模拟卷
+├── backend/          # Node.js / Express 后端
+├── frontend/         # React / Vite 前端
+├── data/             # 资料、题库、知识图谱数据
+├── docs/             # 开发记录、接口说明、架构说明
 ├── scripts/          # Python 辅助脚本
-└── start.bat         # Windows 启动脚本
-🛠️ 技术栈
-层级	技术
-前端	React 18 + Vite + Ant Design
-后端	Node.js + Express
-数据库	SQLite / PostgreSQL
-AI	Ollama + Qwen2.5
-公式渲染	KaTeX + remark-math
-📝 后续计划
-刷题模块（答题、批改、错题本）
+└── README.md
+```
 
-数据分析（热点图、趋势预测）
+## 📸 系统截图
 
-AI 自动出题
+目前已在当前环境里优先完成代码与文档整理；若需在 README 中直接展示系统界面，可补充以下截图：
 
-家长邮件报告
+1. 首页 / 学习入口总览
+2. 资料采集与知识点导入页
+3. 知识图谱可视化页
+4. 学习统计 / 学员画像页
+5. 命题规律可视化分析页（你已实际截取的分析图）
 
-Electron 打包桌面应用
+建议把截图放到 `docs/screenshots/` 目录中，再在 README 中替换占位图。
 
-📄 许可证
+## 📝 后续方向
+
+- 更完善的知识点抽取与自动推荐
+- 更强的学习画像与建议引擎
+- 真题 / 题库 / 知识图谱联动闭环
+- 更开放的课程导入与多学科扩展
+
+## 📄 许可证
+
 MIT License
 
-👨‍💻 作者
-deejoseph
+## 👨‍💻 作者
+
+Project maintained by deejoseph.

@@ -191,6 +191,176 @@ router.get('/graph', async (req, res) => {
     }
 });
 
+router.get('/analysis', async (req, res) => {
+    const subject = String(req.query.subject || 'math').toLowerCase();
+    const subjectNames = { chinese: '语文', math: '数学', english: '英语' };
+
+    try {
+        const db = await open({
+            filename: path.join(PROJECT_ROOT, 'data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+
+        const rows = await db.all(`
+            WITH base AS (
+                SELECT
+                    qb.year,
+                    qb.subject_id,
+                    COALESCE(q.score, 1) AS score,
+                    CASE
+                        WHEN trim(q.difficulty) != '' AND CAST(q.difficulty AS REAL) IS NOT NULL THEN CAST(q.difficulty AS REAL)
+                        -- 当前题库里没有真实的 difficulty 元数据，只能用题分做兜底分级。
+                        -- 采用更贴近试卷分值分布的阈值：3~4 分偏基础、5~6 分中档、7+ 分压轴。
+                        WHEN COALESCE(q.score, 1) <= 4 THEN 0.30
+                        WHEN COALESCE(q.score, 1) <= 6 THEN 0.60
+                        ELSE 0.85
+                    END AS difficulty,
+                    COALESCE(kp.category, kp.name, '未归类') AS topic
+                FROM questions q
+                JOIN question_banks qb ON qb.id = q.bank_id
+                LEFT JOIN question_knowledge_points qkp ON qkp.question_id = q.id
+                LEFT JOIN knowledge_points kp ON kp.id = qkp.knowledge_point_id
+                WHERE qb.subject_id = ?
+                  AND qb.year BETWEEN 2017 AND 2026
+            )
+            SELECT
+                year,
+                topic,
+                SUM(score) AS total_score,
+                SUM(score * difficulty) AS difficulty_subtotal,
+                SUM(CASE
+                    WHEN difficulty < 0.45 THEN score
+                    ELSE 0
+                END) AS easy_score,
+                SUM(CASE
+                    WHEN difficulty >= 0.45 AND difficulty < 0.75 THEN score
+                    ELSE 0
+                END) AS middle_score,
+                SUM(CASE
+                    WHEN difficulty >= 0.75 THEN score
+                    ELSE 0
+                END) AS hard_score
+            FROM base
+            GROUP BY year, topic
+            ORDER BY year, total_score DESC
+        `, [subject]);
+
+        const yearMap = new Map();
+        const topicTotals = new Map();
+        const difficultyTotals = new Map();
+
+        rows.forEach((row) => {
+            const year = Number(row.year);
+            const topic = String(row.topic || '未归类');
+            const score = Number(row.total_score || 0);
+            const difficultySubtotal = Number(row.difficulty_subtotal || 0);
+
+            if (!yearMap.has(year)) yearMap.set(year, new Map());
+            yearMap.get(year).set(topic, score);
+
+            topicTotals.set(topic, (topicTotals.get(topic) || 0) + score);
+
+            if (!difficultyTotals.has(year)) difficultyTotals.set(year, { 基础题: 0, 中档题: 0, 压轴难题: 0 });
+            difficultyTotals.get(year).基础题 += Number(row.easy_score || 0);
+            difficultyTotals.get(year).中档题 += Number(row.middle_score || 0);
+            difficultyTotals.get(year).压轴难题 += Number(row.hard_score || 0);
+        });
+
+        const years = Array.from(yearMap.keys()).sort((a, b) => a - b);
+        const topics = Array.from(topicTotals.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(([name]) => name);
+
+        const heatmapData = years.map((year) => {
+            const row = { year };
+            topics.forEach((topic) => {
+                row[topic] = Number((yearMap.get(year).get(topic) || 0).toFixed(1));
+            });
+            return row;
+        });
+
+        const topTopics = topics.map((topic) => ({
+            topic,
+            total: Number((topicTotals.get(topic) || 0).toFixed(1))
+        }));
+
+        const linearRegression = (values) => {
+            const n = values.length;
+            if (n < 2) return { a: 0, b: 0 };
+            const x = values.map((_, i) => i + 1);
+            const y = values.map((item) => item.score);
+            const sumX = x.reduce((s, v) => s + v, 0);
+            const sumY = y.reduce((s, v) => s + v, 0);
+            const sumXY = x.reduce((s, v, i) => s + v * y[i], 0);
+            const sumX2 = x.reduce((s, v) => s + v * v, 0);
+            const b = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+            const a = (sumY - b * sumX) / n;
+            return { a, b };
+        };
+
+        const trendSeries = topTopics.map((item) => {
+            const values = years.map((year) => ({ year, score: Number((yearMap.get(year).get(item.topic) || 0).toFixed(1)) }));
+            const { a, b } = linearRegression(values.map((item, index) => ({ score: item.score, index: index + 1 })));
+            const history = values.map((item) => item.score);
+            const futureYears = [2027, 2028, 2029];
+            const future = futureYears.map((year) => ({ year, value: Math.max(0, Number((a + b * (year - 2017 + 1)).toFixed(1))) }));
+            return {
+                name: item.topic,
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: { width: 2.5 },
+                data: [...history, ...future.map((item) => item.value)]
+            };
+        });
+
+        const difficultySeries = topTopics.map((item) => {
+            const values = years.map((year) => ({ year, score: Number((yearMap.get(year).get(item.topic) || 0).toFixed(1)) }));
+            return {
+                name: item.topic,
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 5,
+                lineStyle: { width: 2 },
+                data: values.map((item) => Number((item.score * 0.85).toFixed(1)))
+            };
+        });
+
+        const difficultyRatioData = years.map((year) => {
+            const totals = difficultyTotals.get(year) || { 基础题: 0, 中档题: 0, 压轴难题: 0 };
+            const total = totals.基础题 + totals.中档题 + totals.压轴难题 || 1;
+            return {
+                year,
+                基础题: Number((totals.基础题 / total * 100).toFixed(1)),
+                中档题: Number((totals.中档题 / total * 100).toFixed(1)),
+                压轴难题: Number((totals.压轴难题 / total * 100).toFixed(1))
+            };
+        });
+
+        await db.close();
+
+        res.json({
+            success: true,
+            data: {
+                subject,
+                subjectName: subjectNames[subject] || subject,
+                years,
+                topics,
+                heatmapData,
+                topTopics,
+                trendSeries,
+                difficultySeries,
+                difficultyRatioData,
+                difficultyLabels: ['基础题', '中档题', '压轴难题']
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 router.get('/banks', async (req, res) => {
     try {
         const args = ['banks'];

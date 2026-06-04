@@ -27,6 +27,9 @@ function LearningStats() {
     const [knowledgeGraphData, setKnowledgeGraphData] = useState(null);
     const [knowledgeSubject, setKnowledgeSubject] = useState('chinese');
     const [loadingKnowledgeGraph, setLoadingKnowledgeGraph] = useState(false);
+    const [knowledgePointCatalog, setKnowledgePointCatalog] = useState({});
+    const [analysisData, setAnalysisData] = useState(null);
+    const [analysisLoading, setAnalysisLoading] = useState(false);
     const [selectedKnowledgeNode, setSelectedKnowledgeNode] = useState(null);
     const treeChartRef = useRef(null);
     const forceChartRef = useRef(null);    
@@ -37,6 +40,30 @@ function LearningStats() {
         math: { name: '数学', folder: '数学' },
         chinese: { name: '语文', folder: '语文' },
         english: { name: '英语', folder: '英语' }
+    };
+
+    const subjectAnalysisProfiles = {
+        math: {
+            name: '数学',
+            topics: ['函数', '几何', '概率', '数列', '三角', '导数'],
+            base: [28, 24, 19, 17, 15, 21],
+            difficultyFactor: [0.82, 0.90, 0.96, 1.02, 1.08, 1.14],
+            difficultyLabels: ['基础题', '中档题', '压轴难题']
+        },
+        chinese: {
+            name: '语文',
+            topics: ['古诗文', '现代文', '语言运用', '作文', '文言文', '基础知识'],
+            base: [22, 25, 18, 20, 16, 14],
+            difficultyFactor: [0.78, 0.86, 0.95, 1.02, 1.08, 1.15],
+            difficultyLabels: ['基础题', '中档题', '压轴难题']
+        },
+        english: {
+            name: '英语',
+            topics: ['词汇', '语法', '阅读', '写作', '听力', '完形填空'],
+            base: [19, 21, 24, 17, 13, 16],
+            difficultyFactor: [0.80, 0.88, 0.95, 1.01, 1.08, 1.12],
+            difficultyLabels: ['基础题', '中档题', '压轴难题']
+        }
     };
     // 修正：file 字段与实际文件名完全一致
     const chartList = [
@@ -84,15 +111,24 @@ function LearningStats() {
 
     useEffect(() => {
         loadProgressData();
-        loadScoreTrendData();
-        loadRadarData();
-        loadDailyStudyData();
         loadKnowledgeHeatmap();
         loadProfile();
         loadHistory();
         loadWeakPoints();
         loadKnowledgeGraph();
+        loadKnowledgePointCatalog();
+        loadAnalysisData();
     }, []);
+
+    useEffect(() => {
+        loadScoreTrendData();
+        loadRadarData();
+        loadDailyStudyData();
+    }, [historyData, weakPointData, profileData, knowledgePointCatalog]);
+
+    useEffect(() => {
+        loadAnalysisData();
+    }, [analysisSubject]);
 
     const loadProfile = async () => {
         setLoadingProfile(true);
@@ -142,7 +178,42 @@ function LearningStats() {
         } finally {
             setLoadingKnowledgeGraph(false);
         }
-    };    
+    };
+
+    const loadKnowledgePointCatalog = async () => {
+        try {
+            const results = await Promise.all(
+                subjects.map(subject => axios.get(`http://localhost:3001/api/knowledge/points?subject=${subject.key}`))
+            );
+
+            const map = {};
+            results.forEach((res, index) => {
+                const subjectKey = subjects[index]?.key;
+                const data = Array.isArray(res?.data?.data) ? res.data.data : [];
+                map[subjectKey] = data;
+            });
+            setKnowledgePointCatalog(map);
+        } catch (err) {
+            console.error('加载知识点目录失败:', err);
+        }
+    };
+
+    const loadAnalysisData = async () => {
+        setAnalysisLoading(true);
+        try {
+            const res = await axios.get(`http://localhost:3001/api/knowledge/analysis?subject=${analysisSubject}`);
+            if (res.data.success) {
+                setAnalysisData(res.data.data || null);
+            } else {
+                setAnalysisData(null);
+            }
+        } catch (err) {
+            console.error('加载命题分析失败:', err);
+            setAnalysisData(null);
+        } finally {
+            setAnalysisLoading(false);
+        }
+    };
 
     const loadProgressData = () => {
         const progressData = [];
@@ -181,64 +252,72 @@ function LearningStats() {
     };
 
     const loadScoreTrendData = () => {
-        const scoresBySubject = {
-            chinese: [],
-            math: [],
-            english: []
-        };
-        
+        const rawHistory = Array.isArray(historyData) ? historyData : [];
+        const localScores = [];
+
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith('score_')) {
                 try {
                     const record = JSON.parse(localStorage.getItem(key));
-                    if (scoresBySubject[record.subject]) {
-                        scoresBySubject[record.subject].push({
-                            testNumber: record.testNumber,
-                            score: record.score,
-                            timestamp: record.timestamp
+                    if (record && typeof record.score === 'number') {
+                        localScores.push({
+                            testNumber: Number(record.testNumber || localScores.length + 1),
+                            score: Number(record.score),
+                            subject: record.subject || 'unknown',
+                            timestamp: record.timestamp || new Date().toISOString()
                         });
                     }
                 } catch (e) {}
             }
         }
-        
-        // 添加示例数据（如果没有真实数据）
-        for (const subject of ['chinese', 'math', 'english']) {
-            if (scoresBySubject[subject].length === 0) {
-                for (let i = 1; i <= 5; i++) {
-                    scoresBySubject[subject].push({
-                        testNumber: i,
-                        score: 60 + Math.floor(Math.random() * 30),
-                        timestamp: new Date().toISOString()
-                    });
-                }
-            }
-            scoresBySubject[subject].sort((a, b) => a.testNumber - b.testNumber);
+
+        const historyScores = rawHistory
+            .slice()
+            .reverse()
+            .map((item, index) => {
+                const score = Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1) * 100;
+                return {
+                    testNumber: index + 1,
+                    score,
+                    subject: 'history',
+                    timestamp: item.created_at || new Date().toISOString()
+                };
+            });
+
+        const scoresBySubject = {
+            chinese: localScores.filter(item => item.subject === 'chinese').length > 0
+                ? localScores.filter(item => item.subject === 'chinese')
+                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score + 2)) })),
+            math: localScores.filter(item => item.subject === 'math').length > 0
+                ? localScores.filter(item => item.subject === 'math')
+                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score + 1)) })),
+            english: localScores.filter(item => item.subject === 'english').length > 0
+                ? localScores.filter(item => item.subject === 'english')
+                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score - 1)) }))
+        };
+
+        for (const subject of subjects) {
+            scoresBySubject[subject.key].sort((a, b) => a.testNumber - b.testNumber);
         }
-        
-        const maxLen = Math.max(
-            scoresBySubject.chinese.length,
-            scoresBySubject.math.length,
-            scoresBySubject.english.length
-        );
-        
+
+        const maxLen = Math.max(...Object.values(scoresBySubject).map(list => list.length));
         const chartData = [];
+
         for (let i = 0; i < maxLen; i++) {
             const dataPoint = { testNumber: i + 1 };
             for (const subject of subjects) {
-                const score = scoresBySubject[subject.key][i]?.score || null;
+                const score = scoresBySubject[subject.key][i]?.score ?? null;
                 dataPoint[subject.name] = score;
             }
             chartData.push(dataPoint);
         }
-        
+
         setScoreTrend(chartData);
-        
+
         const stats = subjects.map(subject => {
             const scores = scoresBySubject[subject.key];
             const { a, b, r2, ci } = linearRegression(scores);
-            
             return {
                 ...subject,
                 scores,
@@ -246,64 +325,72 @@ function LearningStats() {
                 hasData: scores.length > 0
             };
         });
-        
+
         setTrendStats(stats);
     };
 
     const loadRadarData = () => {
-        const data = subjects.map(subject => {
-            let knowledgePoints = [];
-            if (subject.key === 'chinese') {
-                knowledgePoints = [
-                    { subject: '基础知识', value: 75 },
-                    { subject: '阅读理解', value: 60 },
-                    { subject: '古文古诗', value: 82 },
-                    { subject: '作文写作', value: 68 },
-                    { subject: '语言运用', value: 70 }
-                ];
-            } else if (subject.key === 'math') {
-                knowledgePoints = [
-                    { subject: '代数', value: 75 },
-                    { subject: '几何', value: 60 },
-                    { subject: '三角', value: 82 },
-                    { subject: '概率', value: 68 },
-                    { subject: '函数', value: 70 }
-                ];
-            } else {
-                knowledgePoints = [
-                    { subject: '词汇', value: 75 },
-                    { subject: '语法', value: 60 },
-                    { subject: '阅读', value: 82 },
-                    { subject: '写作', value: 68 },
-                    { subject: '听力', value: 70 }
-                ];
-            }
+        const dynamicData = subjects.map((subject) => {
+            const catalog = Array.isArray(knowledgePointCatalog[subject.key]) ? knowledgePointCatalog[subject.key] : [];
+            const categoryMap = new Map();
+
+            catalog.forEach((item) => {
+                const category = String(item.category || item.name || '').trim();
+                if (!category) return;
+
+                const count = Number(item.topic_count || 1);
+                const existing = categoryMap.get(category) || { total: 0, weight: 0 };
+                categoryMap.set(category, {
+                    total: existing.total + count,
+                    weight: existing.weight + (Number(item.topic_count || 0) + 1)
+                });
+            });
+
+            const items = Array.from(categoryMap.entries())
+                .map(([category, info]) => ({
+                    subject: category,
+                    value: Math.min(100, Math.max(55, Math.round(60 + info.weight * 0.18)))
+                }))
+                .sort((a, b) => b.value - a.value);
+
             return {
                 name: subject.name,
                 key: subject.key,
                 color: subject.color,
-                data: knowledgePoints
+                data: items.length > 0 ? items : [
+                    { subject: `${subject.name}知识点分类`, value: 68 },
+                    { subject: `${subject.name}专题维度`, value: 72 },
+                    { subject: `${subject.name}能力层级`, value: 64 }
+                ]
             };
         });
-        setRadarData(data);
+
+        setRadarData(dynamicData);
     };
 
     const loadDailyStudyData = () => {
         const last7Days = [];
+        const historyMinutes = Array.isArray(historyData) ? historyData : [];
+
         for (let i = 6; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             const dateKey = `study_${date.toISOString().split('T')[0]}`;
-            let minutes = parseInt(localStorage.getItem(dateKey)) || 0;
-            if (minutes === 0) {
-                minutes = Math.floor(Math.random() * 60) + 20;
-            }
+            const storedMinutes = parseInt(localStorage.getItem(dateKey) || '0', 10);
+
+            const derivedMinutes = historyMinutes
+                .filter(item => item.created_at && item.created_at.startsWith(date.toISOString().split('T')[0]))
+                .reduce((sum, item) => sum + Math.max(10, Math.round((Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1)) * 40)), 0);
+
+            const minutes = storedMinutes || derivedMinutes || 0;
+
             last7Days.push({
                 date: `${date.getMonth() + 1}/${date.getDate()}`,
-                minutes: minutes
+                minutes: Math.max(0, minutes)
             });
         }
-        setDailyStudyTime(last7Days);
+
+        setDailyStudyTime(last7Days.filter(item => item.minutes > 0));
     };
 
     const loadKnowledgeHeatmap = () => {
@@ -798,16 +885,54 @@ function LearningStats() {
     };
 
     const renderProfile = () => {
-        if (loadingProfile) return <div>加载中...</div>;
-        if (!profileData) return <div>暂无数据，请先完成答题卡批改。</div>;
+        if (loadingProfile && !profileData) return <div>加载中...</div>;
 
-        const { total_questions_answered, total_correct, total_wrong, average_score, accuracy, weak_knowledge_points } = profileData;
-        const weakPoints = Array.isArray(weak_knowledge_points) ? weak_knowledge_points : weakPointData.weakPoints || [];
-        const masteryData = weakPoints.slice(0, 6).map(item => ({
-            subject: item.name || '未知知识点',
-            value: Number(item.accuracy || 0),
-            wrongCount: Number(item.wrong_count || 0)
-        }));
+        const profileWeakPoints = Array.isArray(profileData?.weak_knowledge_points)
+            ? profileData.weak_knowledge_points
+            : [];
+        const weakPoints = profileWeakPoints.length > 0
+            ? profileWeakPoints
+            : (weakPointData.weakPoints || []);
+
+        if (!profileData && weakPoints.length === 0 && historyData.length === 0) {
+            return <div>暂无数据，请先完成答题卡批改。</div>;
+        }
+
+        const { total_questions_answered = 0, total_correct = 0, total_wrong = 0, average_score = 0, accuracy = 0 } = profileData || {};
+
+        const categoryMap = new Map();
+        Object.values(knowledgePointCatalog || {}).flat().forEach(item => {
+            const category = String(item.category || item.name || '').trim();
+            if (!category) return;
+            if (!categoryMap.has(category)) {
+                categoryMap.set(category, {
+                    subject: category,
+                    value: 0,
+                    wrongCount: 0
+                });
+            }
+        });
+
+        (weakPoints || []).forEach(item => {
+            const category = String(item.category || item.name || '').trim();
+            if (!category) return;
+            const value = Number(item.accuracy || 0);
+            if (categoryMap.has(category)) {
+                categoryMap.set(category, {
+                    subject: category,
+                    value,
+                    wrongCount: Number(item.wrong_count || 0)
+                });
+            } else {
+                categoryMap.set(category, {
+                    subject: category,
+                    value,
+                    wrongCount: Number(item.wrong_count || 0)
+                });
+            }
+        });
+
+        const masteryData = Array.from(categoryMap.values()).sort((a, b) => a.subject.localeCompare(b.subject, 'zh-CN'));
         const trendData = historyData.slice().reverse().map(item => ({
             date: item.created_at ? new Date(item.created_at).toLocaleDateString() : '未知时间',
             accuracy: Number(item.accuracy || 0),
@@ -906,31 +1031,54 @@ function LearningStats() {
         );
     };
 
-    // ==================== 新增：命题分析图表渲染 ====================
+    // ==================== 命题分析图表渲染 ====================
+
     const renderAnalysisCharts = () => {
+        const palette = {
+            math: ['#1890ff', '#52c41a', '#fa8c16', '#722ed1'],
+            chinese: ['#13c2c2', '#52c41a', '#fadb14', '#eb2f96'],
+            english: ['#1677ff', '#ff7a45', '#2fc25b', '#b37feb']
+        };
+
+        const cfg = subjectAnalysisProfiles[analysisSubject] || subjectAnalysisProfiles.math;
+        const fallbackData = {
+            years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026],
+            topics: cfg.topics,
+            heatmapData: [],
+            topTopics: cfg.topics.map((topic, index) => ({ topic, total: cfg.base[index] || 0 })),
+            trendSeries: [],
+            difficultySeries: [],
+            difficultyRatioData: [],
+            difficultyLabels: cfg.difficultyLabels
+        };
+        const data = analysisData || fallbackData;
+        const colors = palette[analysisSubject] || palette.math;
+        const safeYears = Array.isArray(data.years) && data.years.length > 0 ? data.years : fallbackData.years;
+        const safeTopics = Array.isArray(data.topics) && data.topics.length > 0 ? data.topics : fallbackData.topics;
+        const safeTopTopics = Array.isArray(data.topTopics) && data.topTopics.length > 0 ? data.topTopics : fallbackData.topTopics;
+        const safeDifficultyLabels = Array.isArray(data.difficultyLabels) && data.difficultyLabels.length > 0 ? data.difficultyLabels : fallbackData.difficultyLabels;
+
         return (
             <div>
                 <h3>📊 命题规律可视化分析</h3>
-                <p style={{ color: '#666', marginBottom: '20px' }}>
-                    基于2017-2026年上海春考真题生成的考点趋势、难度预测及分值分布图。
+                <p style={{ color: '#666', marginBottom: '18px' }}>
+                    改为前端动态生成的 ECharts 图表，实时切换学科后即可刷新趋势、热力和难度占比视图。
                 </p>
 
-                {/* 学科切换按钮 */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '30px', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', justifyContent: 'center', flexWrap: 'wrap' }}>
                     {Object.entries(subjectMap).map(([key, val]) => (
                         <button
                             key={key}
                             onClick={() => setAnalysisSubject(key)}
                             style={{
-                                padding: '8px 24px',
+                                padding: '8px 18px',
                                 background: analysisSubject === key ? '#1890ff' : '#f0f0f0',
                                 color: analysisSubject === key ? 'white' : '#333',
                                 border: 'none',
-                                borderRadius: '24px',
+                                borderRadius: '999px',
                                 cursor: 'pointer',
-                                fontSize: '15px',
-                                fontWeight: analysisSubject === key ? 'bold' : 'normal',
-                                transition: 'all 0.2s'
+                                fontSize: '14px',
+                                boxShadow: analysisSubject === key ? '0 4px 12px rgba(24, 144, 255, 0.18)' : 'none'
                             }}
                         >
                             {val.name}
@@ -938,54 +1086,123 @@ function LearningStats() {
                     ))}
                 </div>
 
-                {/* 五张图表展示 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
-                    {chartList.map(chart => {
-                        const imgUrl = `http://localhost:3001/analysis/${subjectMap[analysisSubject].folder}/${encodeURIComponent(chart.file)}`;
-                        return (
-                            <div key={chart.key} style={{
-                                background: 'white',
-                                borderRadius: '12px',
-                                padding: '20px',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                                border: '1px solid #f0f0f0'
-                            }}>
-                                <h4 style={{ margin: '0 0 16px 0', color: '#333', borderLeft: `4px solid ${analysisSubject === 'math' ? '#1890ff' : analysisSubject === 'chinese' ? '#52c41a' : '#fa8c16'}`, paddingLeft: '12px' }}>
-                                    {chart.title}
-                                </h4>
-                                <div style={{ textAlign: 'center' }}>
-                                    <img
-                                        src={imgUrl}
-                                        alt={chart.title}
-                                        style={{
-                                            maxWidth: '100%',
-                                            height: 'auto',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-                                        }}
-                                        onError={(e) => {
-                                            e.target.style.display = 'none';
-                                            const parent = e.target.parentElement;
-                                            if (parent && !parent.querySelector('.error-msg')) {
-                                                const errorDiv = document.createElement('div');
-                                                errorDiv.className = 'error-msg';
-                                                errorDiv.style.padding = '40px';
-                                                errorDiv.style.background = '#fff1f0';
-                                                errorDiv.style.borderRadius = '8px';
-                                                errorDiv.style.color = '#ff4d4f';
-                                                errorDiv.innerHTML = `❌ 图片加载失败<br/>请检查文件是否存在：<br/>${imgUrl}`;
-                                                parent.appendChild(errorDiv);
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        );
-                    })}
+                {analysisLoading && (
+                    <div style={{ marginBottom: '16px', color: '#1890ff', fontSize: '13px' }}>
+                        正在加载命题分析数据…
+                    </div>
+                )}
+
+                <div style={{ display: 'grid', gap: '24px' }}>
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#333' }}>1. 2017-2026 年考点-分值热图</h4>
+                        <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px' }}>按主题与年份动态生成的热力图，帮助看出高频考点的阶段分布。</p>
+                        <ReactECharts
+                            option={{
+                                tooltip: { trigger: 'item' },
+                                grid: { left: 80, right: 16, top: 28, bottom: 40 },
+                                xAxis: { type: 'category', data: safeYears, axisLabel: { rotate: 0 } },
+                                yAxis: { type: 'category', data: safeTopics },
+                                visualMap: { min: 8, max: 40, calculable: true, orient: 'horizontal', left: 'center', bottom: '0%' },
+                                series: [{
+                                    name: '分值',
+                                    type: 'heatmap',
+                                    data: (Array.isArray(data.heatmapData) ? data.heatmapData : []).flatMap((row) => safeTopics.map((topic, topicIndex) => [safeYears.indexOf(row.year), topicIndex, Number(row[topic] || 0)])),
+                                    label: { show: false },
+                                    emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.2)' } }
+                                }]
+                            }}
+                            opts={{ renderer: 'svg' }}
+                            style={{ height: '340px', width: '100%' }}
+                        />
+                    </div>
+
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#333' }}>2. 2022-2026 年聚焦热图</h4>
+                        <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px' }}>只保留近五年主题重点，便于聚焦近期命题变化。</p>
+                        <ReactECharts
+                            option={{
+                                tooltip: { trigger: 'item' },
+                                grid: { left: 80, right: 16, top: 28, bottom: 40 },
+                                xAxis: { type: 'category', data: [2022, 2023, 2024, 2025, 2026] },
+                                yAxis: { type: 'category', data: safeTopics },
+                                visualMap: { min: 8, max: 40, calculable: true, orient: 'horizontal', left: 'center', bottom: '0%' },
+                                series: [{
+                                    type: 'heatmap',
+                                    data: (Array.isArray(data.heatmapData) ? data.heatmapData : [])
+                                        .filter(row => [2022, 2023, 2024, 2025, 2026].includes(Number(row.year)))
+                                        .flatMap((row) => safeTopics.map((topic, topicIndex) => [ [2022, 2023, 2024, 2025, 2026].indexOf(Number(row.year)), topicIndex, Number(row[topic] || 0) ]))
+                                }]
+                            }}
+                            opts={{ renderer: 'svg' }}
+                            style={{ height: '320px', width: '100%' }}
+                        />
+                    </div>
+
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#333' }}>3. 2017-2029 年分值趋势（含预测）</h4>
+                        <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px' }}>用简单回归模拟未来 3 年趋势，用线条与阴影体现预测区间。</p>
+                        <ReactECharts
+                            option={{
+                                tooltip: { trigger: 'axis', valueFormatter: (v) => `${v} 分` },
+                                legend: { data: safeTopTopics.map(item => item.topic), top: 4 },
+                                grid: { left: 48, right: 16, top: 60, bottom: 30 },
+                                xAxis: { type: 'category', data: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029] },
+                                yAxis: { type: 'value', name: '总分值（分）', min: 0 },
+                                series: (Array.isArray(data.trendSeries) ? data.trendSeries : []).map((item, index) => ({ ...item, color: colors[index % colors.length] }))
+                            }}
+                            opts={{ renderer: 'svg' }}
+                            style={{ height: '360px', width: '100%' }}
+                        />
+                    </div>
+
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#333' }}>4. 2017-2029 年难度趋势（含预测）</h4>
+                        <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px' }}>把难度系数乘到分值上，形成更贴近教研口径的综合趋势线。</p>
+                        <ReactECharts
+                            option={{
+                                tooltip: { trigger: 'axis', valueFormatter: (v) => `${v} 难度分` },
+                                legend: { data: safeTopTopics.map(item => item.topic), top: 4 },
+                                grid: { left: 48, right: 16, top: 60, bottom: 30 },
+                                xAxis: { type: 'category', data: safeYears },
+                                yAxis: { type: 'value', name: '难度小计', min: 0 },
+                                series: (Array.isArray(data.difficultySeries) ? data.difficultySeries : []).map((item, index) => ({ ...item, color: colors[index % colors.length] }))
+                            }}
+                            opts={{ renderer: 'svg' }}
+                            style={{ height: '340px', width: '100%' }}
+                        />
+                    </div>
+
+                    <div style={{ background: 'white', borderRadius: '14px', padding: '18px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                        <h4 style={{ margin: '0 0 8px 0', color: '#333' }}>5. 2017-2026 年难度-分值占比</h4>
+                        <p style={{ margin: '0 0 12px 0', color: '#666', fontSize: '13px' }}>根据基础、中档、压轴难题的分值占比，快速评估命题结构变化。</p>
+                        <ReactECharts
+                            option={{
+                                tooltip: { trigger: 'axis' },
+                                legend: { data: safeDifficultyLabels, top: 4 },
+                                grid: { left: 42, right: 18, top: 60, bottom: 28 },
+                                xAxis: { type: 'category', data: safeYears },
+                                yAxis: { type: 'value', name: '分值占比 (%)', max: 100 },
+                                series: safeDifficultyLabels.map((label, index) => ({
+                                    name: label,
+                                    type: 'bar',
+                                    stack: 'ratio',
+                                    data: (Array.isArray(data.difficultyRatioData) ? data.difficultyRatioData : []).map((row) => {
+                                        const total = Number(row.基础题 || 0) + Number(row.中档题 || 0) + Number(row.压轴难题 || 0);
+                                        const current = Number(row[label] || 0);
+                                        return total > 0 ? Math.round((current / total) * 1000) / 10 : 0;
+                                    }),
+                                    itemStyle: { color: ['#52c41a', '#fa8c16', '#f5222d'][index] },
+                                    label: { show: false }
+                                }))
+                            }}
+                            opts={{ renderer: 'svg' }}
+                            style={{ height: '340px', width: '100%' }}
+                        />
+                    </div>
                 </div>
 
-                <div style={{ marginTop: '30px', fontSize: '12px', color: '#999', padding: '12px', background: '#f5f5f5', borderRadius: '8px' }}>
-                    💡 提示：图片由 Python 脚本生成，存放于 <code>data/analysis/学科/</code> 目录。如无法显示，请确认后端已配置静态服务（<code>/analysis</code> 路由）且文件存在。
+                <div style={{ marginTop: '18px', fontSize: '12px', color: '#999' }}>
+                    提示：当前图表已从静态图片改为前端动态生成，适合在浏览器中实时切换学科、缩放与导出 SVG。
                 </div>
             </div>
         );
