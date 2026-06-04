@@ -6,6 +6,8 @@ import sqlite3
 import sys
 from datetime import datetime
 
+import requests
+
 from init_knowledge_db import DB_PATH, create_schema
 
 
@@ -17,6 +19,8 @@ SUBJECT_NAMES = {
     "math": "数学",
     "english": "英语",
 }
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
 
 RULE_GROUPS = {
     "chinese": [
@@ -60,6 +64,34 @@ def stable_id(*parts):
 
 def compact(text):
     return re.sub(r"\s+", "", str(text or "")).lower()
+
+
+def call_ollama(prompt, model="qwen2.5:14b", timeout=120):
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.2, "format": "json"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "")
+    except Exception as exc:
+        return None
+
+
+def parse_ai_result(raw):
+    try:
+        data = json.loads(raw or "[]")
+        if isinstance(data, list):
+            return [str(item) for item in data if str(item).strip()]
+        if isinstance(data, dict):
+            for key in ("knowledge_point_ids", "ids", "kp_ids", "recommendations"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return [str(item) for item in value if str(item).strip()]
+        return []
+    except Exception:
+        return []
 
 
 def ensure_rule_points(conn):
@@ -121,7 +153,26 @@ def upsert_link(conn, question_id, knowledge_point_id, confidence, source, note,
     return True
 
 
-def link_questions(conn, subject=None, reset=False):
+def shortlist_candidate_points(question_text, points, limit=30):
+    text = compact(question_text)
+    scored = []
+    for point in points:
+        point = dict(point)
+        haystacks = [point.get("name", ""), point.get("category", ""), point.get("description", "")]
+        score = 0
+        for item in haystacks:
+            item_text = compact(item)
+            if item_text and item_text in text:
+                score += 3
+            elif item_text and any(token in text for token in item_text.split("、")):
+                score += 1
+        if score > 0 or point.get("name") in question_text:
+            scored.append((score, point))
+    scored.sort(key=lambda item: (-item[0], item[1].get("name", "")))
+    return [point for _, point in scored[:limit]]
+
+
+def link_questions(conn, subject=None, reset=False, use_ai=False, model="qwen2.5:14b"):
     now = datetime.now().isoformat(timespec="seconds")
     stats = {"questions_seen": 0, "links_upserted": 0, "topic_links": 0, "keyword_links": 0, "rule_links": 0}
     ensure_rule_points(conn)
@@ -146,7 +197,7 @@ def link_questions(conn, subject=None, reset=False):
 
     questions = conn.execute(
         f"""
-        SELECT q.id, q.topic_id, q.subject_id, q.content, q.analysis, qb.title AS bank_title
+        SELECT q.id, q.topic_id, q.subject_id, q.type, q.content, q.analysis, qb.title AS bank_title
         FROM questions q
         JOIN question_banks qb ON qb.id = q.bank_id
         {where}
@@ -162,9 +213,11 @@ def link_questions(conn, subject=None, reset=False):
     for question in questions:
         stats["questions_seen"] += 1
         question_text = compact(
-            f"{question['bank_title']} {question['content']} {question['analysis']}"
+            f"{question['bank_title']} {question['type']} {question['content']} {question['analysis']}"
         )
-        raw_question_text = f"{question['bank_title']}\n{question['content']}\n{question['analysis']}"
+        raw_question_text = f"{question['bank_title']}\n{question['type']}\n{question['content']}\n{question['analysis']}"
+
+        question_link_count = 0
 
         if question["topic_id"]:
             topic_points = conn.execute(
@@ -187,14 +240,17 @@ def link_questions(conn, subject=None, reset=False):
                     "继承专题知识点",
                     now,
                 ):
+                    question_link_count += 1
                     stats["links_upserted"] += 1
                     stats["topic_links"] += 1
 
+        matched_points = []
         for point in points_by_subject.get(question["subject_id"], []):
             point_name = compact(point["name"])
             if len(point_name) < 2:
                 continue
             if point_name in question_text:
+                matched_points.append(point)
                 if upsert_link(
                     conn,
                     question["id"],
@@ -204,6 +260,7 @@ def link_questions(conn, subject=None, reset=False):
                     f"题干或解析匹配关键词：{point['name']}",
                     now,
                 ):
+                    question_link_count += 1
                     stats["links_upserted"] += 1
                     stats["keyword_links"] += 1
 
@@ -222,8 +279,29 @@ def link_questions(conn, subject=None, reset=False):
                 f"规则匹配：{point_name}",
                 now,
             ):
+                question_link_count += 1
                 stats["links_upserted"] += 1
                 stats["rule_links"] += 1
+
+        if use_ai and question_link_count == 0:
+            candidate_points = shortlist_candidate_points(raw_question_text, points_by_subject.get(question["subject_id"], []), limit=25)
+            if candidate_points:
+                prompt = (
+                    "你是一位学科教师。请只从下面给出的知识点列表中，选择最适合这道题目的 1-3 个知识点。"
+                    "输出必须是 JSON 数组，元素为知识点的 ID。\n\n"
+                    f"题干：{question['content'][:800]}\n\n解析：{question['analysis'][:800]}\n\n"
+                    "候选知识点（ID: 名称 | 分类 | 描述）：\n"
+                    + "\n".join(f"- {p['id']}: {p['name']} | {p.get('category','')} | {p.get('description','')}" for p in candidate_points)
+                    + "\n\n请只输出 JSON 数组，不要解释。"
+                )
+                response = call_ollama(prompt, model=model)
+                kp_ids = parse_ai_result(response)
+                if kp_ids:
+                    for kp_id in kp_ids[:3]:
+                        if kp_id in {p["id"] for p in candidate_points}:
+                            if upsert_link(conn, question["id"], kp_id, 0.64, "ai", "本地 OLLAMA 补充映射", now):
+                                question_link_count += 1
+                                stats["links_upserted"] += 1
 
     return stats
 
@@ -257,12 +335,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--subject")
     parser.add_argument("--reset", action="store_true")
+    parser.add_argument("--use-ai", action="store_true", help="对未命中题目使用本地 Ollama 补充候选）")
+    parser.add_argument("--model", default="qwen2.5:14b", help="本地 Ollama 模型名")
     args = parser.parse_args()
 
     conn = connect()
     try:
         create_schema(conn)
-        stats = link_questions(conn, args.subject, args.reset)
+        stats = link_questions(conn, args.subject, args.reset, use_ai=args.use_ai, model=args.model)
         conn.commit()
         print(json.dumps({"success": True, "link": stats, "summary": summary(conn)}, ensure_ascii=False, indent=2))
     finally:

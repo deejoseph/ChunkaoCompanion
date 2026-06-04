@@ -16,6 +16,7 @@ const answerSheetRouter = require('./routes/answerSheet');
 const app = express();
 const PORT = 3001;
 const path = require('path');
+const studentRouter = require('./routes/student');
 
 // ========== 中间件（必须在路由之前） ==========
 app.use(cors());
@@ -34,6 +35,7 @@ app.use('/api/ocr', ocrRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/banks', banksRouter);
 app.use('/api/config', apiConfigRouter);
+app.use('/api/student', studentRouter);
 
 // 允许前端访问 analysis 目录下的图表图片
 app.use('/analysis', express.static(path.join(__dirname, '../data/analysis')));

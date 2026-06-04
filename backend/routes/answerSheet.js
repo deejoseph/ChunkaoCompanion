@@ -90,17 +90,25 @@ router.post('/submit', async (req, res) => {
         let wrongMappings = [];
         if (wrongQuestionIds.length > 0) {
             const placeholders = wrongQuestionIds.map(() => '?').join(',');
-            // 修正1：去掉 kp.topic_id
-            wrongMappings = await db.all(`
+            const rawMappings = await db.all(`
                 SELECT qkp.question_id, qkp.knowledge_point_id, kp.name
                 FROM question_knowledge_points qkp
                 JOIN knowledge_points kp ON qkp.knowledge_point_id = kp.id
                 WHERE qkp.question_id IN (${placeholders})
             `, wrongQuestionIds);
 
+            const deduped = new Map();
+            for (const mapping of rawMappings) {
+                const key = `${mapping.question_id}::${mapping.knowledge_point_id}`;
+                if (!deduped.has(key)) {
+                    deduped.set(key, mapping);
+                }
+            }
+            wrongMappings = Array.from(deduped.values());
+
             for (const mapping of wrongMappings) {
                 await db.run(`
-                    INSERT INTO student_wrong_knowledge 
+                    INSERT OR IGNORE INTO student_wrong_knowledge 
                     (id, student_id, question_id, knowledge_point_id, bank_id, sheet_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 `, [uuidv4(), studentId, mapping.question_id, mapping.knowledge_point_id, bankId, sheetId, now]);
@@ -121,11 +129,26 @@ router.post('/submit', async (req, res) => {
         const newTotalWrong = profile.total_wrong + wrongQuestionIds.length;
         const newAvgScore = profile.total_questions_answered === 0 ? totalScore / questions.length : (profile.average_score * profile.total_questions_answered + totalScore) / newTotalQuestions;
 
+        const weakKnowledgePoints = wrongMappings.reduce((acc, mapping) => {
+            const existing = acc.find(item => item.id === mapping.knowledge_point_id);
+            if (existing) {
+                existing.wrong_count += 1;
+            } else {
+                acc.push({
+                    id: mapping.knowledge_point_id,
+                    name: mapping.name,
+                    wrong_count: 1,
+                    accuracy: newTotalWrong > 0 ? Math.max(0, Math.round(100 * (1 - 1 / newTotalWrong))) : 100
+                });
+            }
+            return acc;
+        }, []);
+
         await db.run(`
             UPDATE student_profile 
-            SET total_questions_answered = ?, total_correct = ?, total_wrong = ?, average_score = ?, updated_at = ?
+            SET total_questions_answered = ?, total_correct = ?, total_wrong = ?, average_score = ?, weak_knowledge_points = ?, updated_at = ?
             WHERE student_id = ?
-        `, [newTotalQuestions, newTotalCorrect, newTotalWrong, newAvgScore, now, studentId]);
+        `, [newTotalQuestions, newTotalCorrect, newTotalWrong, newAvgScore, JSON.stringify(weakKnowledgePoints), now, studentId]);
 
         // 获取错题涉及的专题（通过 topic_knowledge_points 关联）
         let topicsList = [];
@@ -142,6 +165,12 @@ router.post('/submit', async (req, res) => {
 
         await db.close();
 
+        const uniqueWrongKnowledgePoints = Array.from(
+            new Map(
+                wrongMappings.map(mapping => [mapping.knowledge_point_id, { id: mapping.knowledge_point_id, name: mapping.name }])
+            ).values()
+        );
+
         res.json({
             success: true,
             sheetId,
@@ -149,7 +178,7 @@ router.post('/submit', async (req, res) => {
             maxScore,
             wrongCount: wrongQuestionIds.length,
             topics: topicsList,
-            wrongKnowledgePoints: wrongMappings.map(m => ({ id: m.knowledge_point_id, name: m.name }))
+            wrongKnowledgePoints: uniqueWrongKnowledgePoints
         });
     } catch (error) {
         console.error(error);

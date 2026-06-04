@@ -99,6 +99,98 @@ router.get('/points', async (req, res) => {
     }
 });
 
+router.get('/graph', async (req, res) => {
+    const subject = String(req.query.subject || 'all').toLowerCase();
+    const subjects = subject === 'all' ? ['chinese', 'math', 'english'] : [subject];
+
+    try {
+        const db = await open({
+            filename: path.join(PROJECT_ROOT, 'data/knowledge/chunkao.db'),
+            driver: sqlite3.Database
+        });
+
+        const subjectNames = { chinese: '语文', math: '数学', english: '英语' };
+        const result = {};
+
+        for (const item of subjects) {
+            const rows = await db.all(`
+                SELECT
+                    kp.id AS knowledge_point_id,
+                    kp.name,
+                    COALESCE(kp.category, '未分类') AS category,
+                    COUNT(DISTINCT q.id) AS question_count,
+                    ROUND(AVG(qkp.confidence), 2) AS avg_confidence,
+                    ROUND(SUM(qkp.confidence), 2) AS support_weight
+                FROM question_knowledge_points qkp
+                JOIN questions q ON q.id = qkp.question_id
+                JOIN question_banks qb ON qb.id = q.bank_id
+                JOIN knowledge_points kp ON kp.id = qkp.knowledge_point_id
+                WHERE qb.subject_id = ?
+                GROUP BY kp.id
+                ORDER BY support_weight DESC, question_count DESC
+            `, [item]);
+
+            const totalQuestions = rows.reduce((sum, row) => sum + Number(row.question_count || 0), 0);
+            const categoryMap = new Map();
+
+            rows.forEach(row => {
+                const category = String(row.category || '未分类');
+                if (!categoryMap.has(category)) {
+                    categoryMap.set(category, []);
+                }
+                categoryMap.get(category).push({
+                    name: row.name,
+                    value: Number(row.question_count || 0),
+                    support: Number(row.support_weight || 0),
+                    confidence: Number(row.avg_confidence || 0),
+                    id: row.knowledge_point_id
+                });
+            });
+
+            const tree = {
+                name: subjectNames[item] || item,
+                value: totalQuestions,
+                children: Array.from(categoryMap.entries()).map(([category, children]) => ({
+                    name: category,
+                    value: children.reduce((sum, child) => sum + child.value, 0),
+                    children: children.map(child => ({
+                        name: child.name,
+                        value: child.value,
+                        support: child.support,
+                        confidence: child.confidence,
+                        id: child.id
+                    }))
+                }))
+            };
+
+            result[item] = {
+                subject: item,
+                subjectName: subjectNames[item] || item,
+                summary: {
+                    totalKnowledgePoints: rows.length,
+                    totalQuestionLinks: totalQuestions
+                },
+                tree,
+                support: rows.slice(0, 18).map(row => ({
+                    name: row.name,
+                    support: Number(row.question_count || 0),
+                    confidence: Number(row.avg_confidence || 0),
+                    weight: Number(row.support_weight || 0)
+                }))
+            };
+        }
+
+        await db.close();
+
+        res.json({
+            success: true,
+            data: subject === 'all' ? result : result[subject]
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 router.get('/banks', async (req, res) => {
     try {
         const args = ['banks'];

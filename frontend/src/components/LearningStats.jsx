@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
+import ReactECharts from 'echarts-for-react';
 import {
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
     LineChart, Line, XAxis, YAxis, CartesianGrid, Legend,
@@ -17,6 +19,17 @@ function LearningStats() {
     const [knowledgeHeatmap, setKnowledgeHeatmap] = useState([]);
     const [trendingTopics, setTrendingTopics] = useState([]);
     const [heatmapSubject, setHeatmapSubject] = useState('math');
+
+    const [profileData, setProfileData] = useState(null);
+    const [historyData, setHistoryData] = useState([]);
+    const [weakPointData, setWeakPointData] = useState({ weakPoints: [], relatedTopics: [], totalWrong: 0 });
+    const [loadingProfile, setLoadingProfile] = useState(false);
+    const [knowledgeGraphData, setKnowledgeGraphData] = useState(null);
+    const [knowledgeSubject, setKnowledgeSubject] = useState('chinese');
+    const [loadingKnowledgeGraph, setLoadingKnowledgeGraph] = useState(false);
+    const [selectedKnowledgeNode, setSelectedKnowledgeNode] = useState(null);
+    const treeChartRef = useRef(null);
+    const forceChartRef = useRef(null);    
 
     // ========== 命题分析图表相关状态 ==========
     const [analysisSubject, setAnalysisSubject] = useState('math');
@@ -75,7 +88,61 @@ function LearningStats() {
         loadRadarData();
         loadDailyStudyData();
         loadKnowledgeHeatmap();
+        loadProfile();
+        loadHistory();
+        loadWeakPoints();
+        loadKnowledgeGraph();
     }, []);
+
+    const loadProfile = async () => {
+        setLoadingProfile(true);
+        try {
+            const res = await axios.get('http://localhost:3001/api/student/profile');
+            if (res.data.success) {
+                setProfileData(res.data.data);
+            }
+        } catch (err) {
+            console.error('加载画像失败:', err);
+        } finally {
+            setLoadingProfile(false);
+        }
+    };
+
+    const loadHistory = async () => {
+        try {
+            const res = await axios.get('http://localhost:3001/api/student/history');
+            if (res.data.success) {
+                setHistoryData(res.data.history);
+            }
+        } catch (err) {
+            console.error('加载历史失败:', err);
+        }
+    };
+
+    const loadWeakPoints = async () => {
+        try {
+            const res = await axios.get('http://localhost:3001/api/student/weak-points');
+            if (res.data.success) {
+                setWeakPointData(res.data.data || { weakPoints: [], relatedTopics: [], totalWrong: 0 });
+            }
+        } catch (err) {
+            console.error('加载薄弱知识点失败:', err);
+        }
+    };
+
+    const loadKnowledgeGraph = async () => {
+        setLoadingKnowledgeGraph(true);
+        try {
+            const res = await axios.get('http://localhost:3001/api/knowledge/graph?subject=all');
+            if (res.data.success) {
+                setKnowledgeGraphData(res.data.data || {});
+            }
+        } catch (err) {
+            console.error('加载知识图谱失败:', err);
+        } finally {
+            setLoadingKnowledgeGraph(false);
+        }
+    };    
 
     const loadProgressData = () => {
         const progressData = [];
@@ -470,183 +537,371 @@ function LearningStats() {
         );
     };
 
-    const renderHeatmap = () => {
-        const topics = {
-            math: ['函数', '几何', '概率', '数列', '三角', '向量', '不等式', '导数'],
-            chinese: ['古诗默写', '文言文阅读', '现代文阅读', '语言文字运用', '作文', '文学常识', '名著阅读'],
-            english: ['听力', '语法填空', '完形填空', '阅读理解', '七选五', '写作', '翻译']
-        };
+    const exportFullChart = async (chartRef, fileName) => {
+        const chart = chartRef?.current?.getEchartsInstance?.();
+        if (!chart) return;
 
-        const getColor = (value) => {
-            if (value >= 12) return '#f5222d';
-            if (value >= 8) return '#fa8c16';
-            if (value >= 4) return '#fadb14';
-            return '#d9f0be';
-        };
+        const dataUrlToBlob = (dataUrl) => {
+            const parts = dataUrl.split(',');
+            if (parts.length < 2) return null;
 
-        const getHeatmapData = () => {
-            const years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
-            return years.map(year => {
-                const row = { year };
-                topics[heatmapSubject].forEach(topic => {
-                    if (heatmapSubject === 'math') {
-                        if (topic === '函数') row[topic] = 8 + Math.floor(Math.random() * 10);
-                        else if (topic === '几何') row[topic] = 6 + Math.floor(Math.random() * 8);
-                        else if (topic === '导数') row[topic] = 4 + Math.floor(Math.random() * 12);
-                        else row[topic] = 3 + Math.floor(Math.random() * 8);
-                    } else if (heatmapSubject === 'chinese') {
-                        if (topic === '作文') row[topic] = 40 + Math.floor(Math.random() * 20);
-                        else if (topic === '文言文阅读') row[topic] = 12 + Math.floor(Math.random() * 8);
-                        else row[topic] = 6 + Math.floor(Math.random() * 8);
-                    } else {
-                        if (topic === '阅读理解') row[topic] = 20 + Math.floor(Math.random() * 10);
-                        else if (topic === '听力') row[topic] = 15 + Math.floor(Math.random() * 10);
-                        else row[topic] = 8 + Math.floor(Math.random() * 8);
-                    }
-                });
-                return row;
-            });
-        };
+            const header = parts[0];
+            const data = parts.slice(1).join(',');
+            const isBase64 = header.includes(';base64');
+            const mimeMatch = header.match(/data:([^;]+)(;charset=[^;]+)?/);
+            const mimeType = mimeMatch ? `${mimeMatch[1]}${mimeMatch[2] || ''}` : 'image/svg+xml;charset=utf-8';
 
-        const heatmapData = getHeatmapData();
-        const currentTopics = topics[heatmapSubject];
-
-        const getTrendingTopics = () => {
-            if (heatmapSubject === 'math') {
-                return [
-                    { name: '导数', increase: '+8分', trend: 'up' },
-                    { name: '概率统计', increase: '+6分', trend: 'up' },
-                    { name: '函数综合', increase: '+5分', trend: 'up' }
-                ];
-            } else if (heatmapSubject === 'chinese') {
-                return [
-                    { name: '作文', increase: '+5分', trend: 'up' },
-                    { name: '文言文阅读', increase: '+3分', trend: 'up' }
-                ];
-            } else {
-                return [
-                    { name: '阅读理解', increase: '+6分', trend: 'up' },
-                    { name: '听力', increase: '+4分', trend: 'up' }
-                ];
+            if (isBase64) {
+                const binary = atob(data);
+                const len = binary.length;
+                const buffer = new Uint8Array(len);
+                for (let i = 0; i < len; i += 1) {
+                    buffer[i] = binary.charCodeAt(i);
+                }
+                return new Blob([buffer], { type: mimeType });
             }
+
+            return new Blob([decodeURIComponent(data)], { type: mimeType });
         };
 
-        const trendingTopicsLocal = getTrendingTopics();
+        const prevWidth = chart.getWidth?.() || 0;
+        const prevHeight = chart.getHeight?.() || 0;
+
+        try {
+            chart.resize({ width: 1600, height: 1100 });
+            let dataUrl = chart.getDataURL({
+                type: 'svg',
+                backgroundColor: '#ffffff'
+            });
+
+            if (!dataUrl.includes('charset=utf-8')) {
+                dataUrl = dataUrl.replace('data:image/svg+xml', 'data:image/svg+xml;charset=utf-8');
+            }
+
+            const blob = dataUrlToBlob(dataUrl);
+            if (!blob) return;
+
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${fileName}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 300);
+        } finally {
+            if (prevWidth && prevHeight) {
+                chart.resize({ width: prevWidth, height: prevHeight });
+            } else {
+                chart.resize();
+            }
+        }
+    };
+
+    const renderKnowledgeGraph = () => {
+        const current = knowledgeGraphData?.[knowledgeSubject] || null;
+        if (loadingKnowledgeGraph) return <div>正在加载知识图谱…</div>;
+        if (!current) return <div>暂无知识图谱数据，请先完成题库与知识点映射。</div>;
+
+        const treeOption = {
+            tooltip: {
+                trigger: 'item',
+                formatter: (params) => `${params.name}<br/>关联题数：${params.data.value || 0}${params.data.support ? `<br/>支持力：${params.data.support.toFixed(2)}` : ''}${params.data.confidence ? `<br/>置信度：${params.data.confidence.toFixed(2)}` : ''}`
+            },
+            toolbox: {
+                show: true,
+                right: 10,
+                feature: {
+                    saveAsImage: {
+                        show: true,
+                        title: '下载完整大图',
+                        type: 'png',
+                        pixelRatio: 4,
+                        backgroundColor: '#ffffff',
+                        excludeComponents: ['toolbox']
+                    },
+                    restore: { show: true, title: '重置视图' },
+                    dataZoom: { show: true, title: { zoom: '区域缩放', back: '取消缩放' } }
+                }
+            },
+            series: [{
+                type: 'tree',
+                data: [current.tree],
+                top: '5%',
+                left: '8%',
+                bottom: '5%',
+                right: '22%',
+                symbolSize: 8,
+                orient: 'LR',
+                roam: true,
+                expandAndCollapse: true,
+                initialTreeDepth: 2,
+                label: { position: 'left', rotate: 0, fontSize: 10, minMargin: 6, overflow: 'breakAll' },
+                leaves: { label: { position: 'right' } },
+                lineStyle: { color: 'rgba(24, 144, 255, 0.35)', width: 1.2 },
+                emphasis: { focus: 'descendant' },
+                animationDurationUpdate: 500
+            }]
+        };
+
+        const supportNodes = [
+            { id: current.subject, name: current.subjectName, value: current.summary?.totalQuestionLinks || 0, support: current.summary?.totalQuestionLinks || 0, symbolSize: 42, category: 0, itemStyle: { color: '#4C6FFF', borderColor: '#fff', borderWidth: 2 } },
+            ...current.support.slice(0, 10).map((item, index) => ({
+                id: `kp_${index}`,
+                name: item.name,
+                value: item.support,
+                support: item.support,
+                confidence: item.confidence || 0,
+                symbolSize: 14 + item.support * 1.8,
+                category: 1,
+                itemStyle: { color: index % 3 === 0 ? '#52C41A' : index % 3 === 1 ? '#FA8C16' : '#722ED1', borderColor: '#fff', borderWidth: 1.5 }
+            }))
+        ];
+
+        const supportEdges = current.support.slice(0, 10).map((item, index) => ({
+            source: current.subject,
+            target: `kp_${index}`,
+            value: item.support,
+            lineStyle: {
+                width: 1 + item.support * 0.7,
+                color: index % 3 === 0 ? 'rgba(76, 111, 255, 0.45)' : index % 3 === 1 ? 'rgba(114, 46, 209, 0.45)' : 'rgba(250, 140, 22, 0.35)'
+            }
+        }));
+
+        const supportOption = {
+            tooltip: {
+                trigger: 'item',
+                formatter: (params) => `${params.data.name || params.name}<br/>支持题数：${params.data.value || params.value || 0}<br/>支持力：${(params.data.support || 0).toFixed(2)}`
+            },
+            toolbox: {
+                show: true,
+                right: 10,
+                feature: {
+                    saveAsImage: {
+                        show: true,
+                        title: '下载完整大图',
+                        type: 'png',
+                        pixelRatio: 4,
+                        backgroundColor: '#ffffff',
+                        excludeComponents: ['toolbox']
+                    },
+                    restore: { show: true, title: '重置视图' },
+                    dataZoom: { show: true, title: { zoom: '区域缩放', back: '取消缩放' } }
+                }
+            },
+            legend: [{ data: ['学科', '知识点'] }],
+            series: [{
+                type: 'graph',
+                layout: 'force',
+                roam: true,
+                draggable: true,
+                force: { repulsion: 220, gravity: 0.06, edgeLength: 90 },
+                data: supportNodes,
+                links: supportEdges,
+                categories: [
+                    { name: '学科', itemStyle: { color: '#4C6FFF' } },
+                    { name: '知识点', itemStyle: { color: '#52C41A' } }
+                ],
+                edgeSymbol: ['none', 'arrow'],
+                edgeSymbolSize: [0, 6],
+                lineStyle: { color: 'rgba(76, 111, 255, 0.45)', width: 1.5, curveness: 0.08 },
+                label: { show: true, position: 'right', formatter: '{b}', color: '#1f1f1f', fontSize: 11 },
+                itemStyle: { borderColor: '#ffffff', borderWidth: 1.5 },
+                emphasis: { focus: 'adjacency', scale: true },
+                silent: false
+            }]
+        };
 
         return (
             <div>
-                <h3>🔥 知识点分值分布热图（2017-2026）</h3>
-
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', justifyContent: 'center' }}>
-                    <button
-                        onClick={() => setHeatmapSubject('math')}
-                        style={{
-                            padding: '8px 20px',
-                            background: heatmapSubject === 'math' ? '#1890ff' : '#f0f0f0',
-                            color: heatmapSubject === 'math' ? 'white' : '#333',
-                            border: 'none',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
-                    >
-                        🧮 数学
-                    </button>
-                    <button
-                        onClick={() => setHeatmapSubject('chinese')}
-                        style={{
-                            padding: '8px 20px',
-                            background: heatmapSubject === 'chinese' ? '#52c41a' : '#f0f0f0',
-                            color: heatmapSubject === 'chinese' ? 'white' : '#333',
-                            border: 'none',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
-                    >
-                        📖 语文
-                    </button>
-                    <button
-                        onClick={() => setHeatmapSubject('english')}
-                        style={{
-                            padding: '8px 20px',
-                            background: heatmapSubject === 'english' ? '#fa8c16' : '#f0f0f0',
-                            color: heatmapSubject === 'english' ? 'white' : '#333',
-                            border: 'none',
-                            borderRadius: '20px',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
-                    >
-                        🇬🇧 英语
-                    </button>
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '12px' }}>
-                        <thead>
-                            <tr>
-                                <th style={{ padding: '10px', border: '1px solid #ddd', background: '#f5f5f5', position: 'sticky', left: 0, backgroundColor: '#f5f5f5' }}>年份</th>
-                                {currentTopics.map(topic => (
-                                    <th key={topic} style={{ padding: '10px', border: '1px solid #ddd', background: '#f5f5f5' }}>{topic}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {heatmapData.map(row => (
-                                <tr key={row.year}>
-                                    <td style={{ padding: '10px', border: '1px solid #ddd', textAlign: 'center', fontWeight: 'bold', position: 'sticky', left: 0, backgroundColor: 'white' }}>
-                                        {row.year}
-                                    </td>
-                                    {currentTopics.map(topic => (
-                                        <td key={topic} style={{
-                                            padding: '10px',
-                                            border: '1px solid #ddd',
-                                            textAlign: 'center',
-                                            backgroundColor: getColor(row[topic]),
-                                            fontWeight: row[topic] >= 8 ? 'bold' : 'normal'
-                                        }}>
-                                            {row[topic]}
-                                        </td>
-                                    ))}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '16px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#f5222d' }}></div><span>≥12分</span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#fa8c16' }}></div><span>8-11分</span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#fadb14' }}></div><span>4-7分</span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '20px', height: '20px', background: '#d9f0be' }}></div><span>1-3分</span></div>
-                </div>
-
-                <div style={{ marginTop: '24px' }}>
-                    <h4>📈 分值呈上升趋势的知识点</h4>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '12px' }}>
-                        {trendingTopicsLocal.map(topic => (
-                            <div key={topic.name} style={{
-                                padding: '8px 16px',
-                                background: '#f6ffed',
-                                border: '1px solid #b7eb8f',
-                                borderRadius: '20px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                            }}>
-                                <span style={{ fontWeight: 'bold' }}>{topic.name}</span>
-                                <span style={{ color: '#52c41a', fontSize: '12px' }}>{topic.increase}</span>
-                                <span>📈</span>
+                {selectedKnowledgeNode && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+                        <div style={{ width: 'min(420px, 100%)', background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                                <div>
+                                    <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{selectedKnowledgeNode.title}</div>
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{selectedKnowledgeNode.subject}</div>
+                                </div>
+                                <button onClick={() => setSelectedKnowledgeNode(null)} style={{ border: 'none', background: '#f5f5f5', borderRadius: '999px', padding: '6px 10px', cursor: 'pointer' }}>关闭</button>
                             </div>
-                        ))}
+                            <div style={{ fontSize: '13px', color: '#444', marginTop: '12px', lineHeight: 1.6 }}>{selectedKnowledgeNode.detail}</div>
+                            {selectedKnowledgeNode.id ? <div style={{ fontSize: '12px', color: '#999', marginTop: '8px' }}>ID：{selectedKnowledgeNode.id}</div> : null}
+                        </div>
+                    </div>
+                )}
+
+                <h3>🧭 知识点树图（{current.subjectName}）</h3>
+                <p style={{ color: '#666', marginBottom: '12px' }}>基于 question_knowledge_points 映射生成，突出知识点分层与题目联系强度。</p>
+                <div style={{ background: 'white', borderRadius: '12px', padding: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                    <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>提示：可鼠标滚轮缩放、拖拽布局；点击节点可查看详细信息。</div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                        <button
+                            onClick={() => exportFullChart(treeChartRef, `${current.subjectName}-知识点树图`)}
+                            style={{ border: '1px solid #d9d9d9', background: '#fff', borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                            下载完整大图
+                        </button>
+                    </div>
+                    <ReactECharts
+                        ref={treeChartRef}
+                        option={treeOption}
+                        opts={{ renderer: 'svg' }}
+                        style={{ height: '420px', width: '100%' }}
+                        onEvents={{
+                            click: (params) => {
+                                if (!params?.data) return;
+                                setSelectedKnowledgeNode({
+                                    title: params.data.name || '知识点',
+                                    subject: current.subjectName,
+                                    detail: `关联题数：${params.data.value || 0}${params.data.support ? ` · 支持力：${params.data.support.toFixed(2)}` : ''}${params.data.confidence ? ` · 置信度：${params.data.confidence.toFixed(2)}` : ''}`,
+                                    id: params.data.id || ''
+                                });
+                            }
+                        }}
+                    />
+                </div>
+
+                <h3 style={{ marginTop: '24px' }}>💡 支持力导向图（{current.subjectName}）</h3>
+                <p style={{ color: '#666', marginBottom: '12px' }}>节点大小与连线粗细由题目支持次数与映射权重决定，便于识别核心考点。</p>
+                <div style={{ background: 'white', borderRadius: '12px', padding: '12px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                        <button
+                            onClick={() => exportFullChart(forceChartRef, `${current.subjectName}-支持力导向图`)}
+                            style={{ border: '1px solid #d9d9d9', background: '#fff', borderRadius: '999px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                            下载完整大图
+                        </button>
+                    </div>
+                    <ReactECharts ref={forceChartRef} option={supportOption} opts={{ renderer: 'svg' }} style={{ height: '420px', width: '100%' }} />
+                </div>
+
+                <div style={{ marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    {Object.entries(knowledgeGraphData || {}).map(([key, item]) => (
+                        <button
+                            key={key}
+                            onClick={() => setKnowledgeSubject(key)}
+                            style={{
+                                padding: '8px 14px',
+                                borderRadius: '16px',
+                                border: knowledgeSubject === key ? '1px solid #1890ff' : '1px solid #d9d9d9',
+                                background: knowledgeSubject === key ? '#e6f7ff' : 'white',
+                                color: knowledgeSubject === key ? '#1890ff' : '#333',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {item.subjectName}（{item.summary?.totalKnowledgePoints || 0}点 / {item.summary?.totalQuestionLinks || 0}题）
+                        </button>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    const renderProfile = () => {
+        if (loadingProfile) return <div>加载中...</div>;
+        if (!profileData) return <div>暂无数据，请先完成答题卡批改。</div>;
+
+        const { total_questions_answered, total_correct, total_wrong, average_score, accuracy, weak_knowledge_points } = profileData;
+        const weakPoints = Array.isArray(weak_knowledge_points) ? weak_knowledge_points : weakPointData.weakPoints || [];
+        const masteryData = weakPoints.slice(0, 6).map(item => ({
+            subject: item.name || '未知知识点',
+            value: Number(item.accuracy || 0),
+            wrongCount: Number(item.wrong_count || 0)
+        }));
+        const trendData = historyData.slice().reverse().map(item => ({
+            date: item.created_at ? new Date(item.created_at).toLocaleDateString() : '未知时间',
+            accuracy: Number(item.accuracy || 0),
+            score: Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1) * 100
+        }));
+
+        return (
+            <div>
+                <h3>📊 学习概览</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1890ff' }}>{total_questions_answered}</div>
+                        <div style={{ fontSize: '13px', color: '#666' }}>总答题数</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#52c41a' }}>{total_correct}</div>
+                        <div style={{ fontSize: '13px', color: '#666' }}>正确数</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#f5222d' }}>{total_wrong}</div>
+                        <div style={{ fontSize: '13px', color: '#666' }}>错误数</div>
+                    </div>
+                    <div style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#fa8c16' }}>{accuracy}%</div>
+                        <div style={{ fontSize: '13px', color: '#666' }}>正确率</div>
                     </div>
                 </div>
 
-                <div style={{ marginTop: '16px', fontSize: '12px', color: '#999', padding: '12px', background: '#f5f5f5', borderRadius: '8px' }}>
-                    💡 说明：数据基于2017-2026年真题试卷统计，后续将自动从真题中提取知识点分值。
-                    分值呈上升趋势的知识点建议重点复习。
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '24px' }}>
+                    <div style={{ background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                        <h3 style={{ marginTop: 0, marginBottom: '12px' }}>📈 成绩进化趋势</h3>
+                        {historyData.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>暂无答题记录</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <LineChart data={trendData}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="date" />
+                                    <YAxis domain={[0, 100]} />
+                                    <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
+                                    <Line type="monotone" dataKey="accuracy" stroke="#1890ff" name="正确率" />
+                                    <Line type="monotone" dataKey="score" stroke="#52c41a" name="得分率" />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+
+                    <div style={{ background: 'white', borderRadius: '12px', padding: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                        <h3 style={{ marginTop: 0, marginBottom: '12px' }}>🎯 知识点掌握度</h3>
+                        {masteryData.length === 0 ? (
+                            <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>暂无知识点掌握度数据</div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <RadarChart data={masteryData}>
+                                    <PolarGrid />
+                                    <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10 }} />
+                                    <PolarRadiusAxis domain={[0, 100]} />
+                                    <Radar dataKey="value" stroke="#fa8c16" fill="#fa8c16" fillOpacity={0.35} name="掌握度" />
+                                    <Tooltip formatter={(value) => `${value}%`} />
+                                </RadarChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
                 </div>
+
+                <h3 style={{ marginTop: '24px' }}>📉 薄弱点与学习专题</h3>
+                {weakPoints.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>暂无薄弱知识点，继续保持！</div>
+                ) : (
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                        {weakPoints.map((wp, idx) => {
+                            const topicList = (weakPointData.relatedTopics || []).filter(item => item.knowledge_point_id === wp.id);
+                            return (
+                                <div key={idx} style={{ background: '#fff1f0', border: '1px solid #ffccc7', borderRadius: '12px', padding: '12px 14px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 'bold', fontSize: '15px' }}>{wp.name}</div>
+                                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                                错题次数：{wp.wrong_count || 0} · 近似掌握度：{wp.accuracy || 0}%
+                                            </div>
+                                        </div>
+                                        <div style={{ color: '#f5222d', fontSize: '12px' }}>建议优先复习</div>
+                                    </div>
+                                    <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                                        关联专题：
+                                        {topicList.length > 0
+                                            ? topicList.map(item => `${item.topic_name}（${item.subject_id || '未知学科'} ${item.version_id || ''}）`).join('； ')
+                                            : '暂无匹配专题，请前往“学习”模块查看相关课程。'}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         );
     };
@@ -741,9 +996,10 @@ function LearningStats() {
         { key: 'progress', label: '学习进度', icon: '📊' },
         { key: 'trend', label: '成绩趋势', icon: '📈' },
         { key: 'radar', label: '掌握度雷达', icon: '🎯' },
-        { key: 'time', label: '学习时长', icon: '⏰' },
-        { key: 'heatmap', label: '知识点热图', icon: '🔥' },
-        { key: 'analysis', label: '命题分析', icon: '📉' }
+        { key: 'time', label: '学习时长', icon: '⏰' },        
+        { key: 'analysis', label: '命题分析', icon: '📉' },
+        { key: 'profile', label: '学生画像', icon: '👤' },
+        { key: 'knowledge', label: '知识图谱', icon: '🧭' }
     ];
 
     return (
@@ -786,9 +1042,10 @@ function LearningStats() {
                 {activeTab === 'progress' && renderProgressChart()}
                 {activeTab === 'trend' && renderTrendChart()}
                 {activeTab === 'radar' && renderRadarChart()}
-                {activeTab === 'time' && renderBarChart()}
-                {activeTab === 'heatmap' && renderHeatmap()}
+                {activeTab === 'time' && renderBarChart()}                
                 {activeTab === 'analysis' && renderAnalysisCharts()}
+                {activeTab === 'profile' && renderProfile()}
+                {activeTab === 'knowledge' && renderKnowledgeGraph()}
             </div>
         </div>
     );

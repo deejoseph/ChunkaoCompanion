@@ -113,7 +113,6 @@ function flattenSectionQuestions(sections = []) {
             const subQuestions = Array.isArray(question.sub_questions) ? question.sub_questions : [];
             
             if (subQuestions.length === 0) {
-                // 无小题，直接作为一道题目
                 globalNumber++;
                 flattened.push({
                     id: `q${parentId}`,
@@ -122,7 +121,7 @@ function flattenSectionQuestions(sections = []) {
                     type: sectionType === 'essay' ? 'qa' : sectionType,
                     content: question.content || question.title || '',
                     sourceAnswer: question.sourceAnswer || question.source_answer || question.answer || '',
-                    finalAnswer: question.finalAnswer || question.final_answer || '',
+                    finalAnswer: '',
                     analysis: question.analysis || question.explanation || '',
                     score: question.score ?? question.points ?? question.total_score ?? null,
                     difficulty: question.difficulty || '',
@@ -135,7 +134,7 @@ function flattenSectionQuestions(sections = []) {
                     parentId: null
                 });
             } else {
-                // 有小题：为每个小题生成独立题目，并尝试自动分配分值
+                // 有小题：为每个小题生成独立题目
                 const totalParentScore = question.total_score ?? question.score ?? question.points;
                 let avgScore = null;
                 if (totalParentScore && subQuestions.length > 0) {
@@ -152,7 +151,7 @@ function flattenSectionQuestions(sections = []) {
                     // 优先使用子题自带的 score，否则从父题平均分配
                     let subScore = sub.score ?? sub.points;
                     if (subScore == null && avgScore != null) {
-                        subScore = parseFloat(avgScore.toFixed(1)); // 保留一位小数
+                        subScore = parseFloat(avgScore.toFixed(1));
                         console.warn(`⚠️ 题目 ${parentId}.${sub.part || globalNumber} 缺失 score，已自动分配为 ${subScore}`);
                     } else if (subScore == null) {
                         subScore = null;
@@ -173,6 +172,7 @@ function flattenSectionQuestions(sections = []) {
                         pageNumber: sub.pageNumber || sub.page_number || null,
                         images: sub.images || [],
                         image: sub.image || '',
+                        // 关键：保留子题的知识点
                         knowledgePoints: sub.knowledgePoints || sub.knowledge_points || [],
                         sectionType,
                         sectionDescription,
