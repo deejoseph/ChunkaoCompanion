@@ -12,6 +12,9 @@ scripts/
 # 本地备份、资料包和运行时产物
 backup/
 *.7z
+
+# 暑期培训班课程开发文档（本地教学方案，不推送）
+docs/暑期培训班教程/
 debug_output.txt
 backend/uploads/
 backend/temp/

@@ -13,6 +13,7 @@ import SideToolPanel from './components/SideToolPanel';
 import InternationalCourses from './components/InternationalCourses';
 import ModelNicknamePanel from './components/ModelNicknamePanel';
 import AnswerSheetFloatingButton from './components/AnswerSheet/AnswerSheetFloatingButton';
+import StudyTimer from './components/StudyTimer';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
@@ -296,8 +297,9 @@ function App() {
           <button onClick={() => setActiveTab('international')} style={getNavButtonStyle('international')}>🌍 国际</button>
         </div>
 
-        {/* 右侧：用户头像 + 设置 */}
+        {/* 右侧：学习计时 + 设置 + 用户头像 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <StudyTimer />
           <button 
             onClick={() => setShowSettingsModal(true)} 
             style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '18px', cursor: 'pointer', padding: '6px' }} 

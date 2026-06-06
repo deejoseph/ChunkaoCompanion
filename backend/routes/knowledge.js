@@ -14,6 +14,8 @@ const QUERY_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/query_knowledge_db
 const IMPORT_BANKS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_question_banks.py');
 const LINK_QUESTION_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/link_question_knowledge.py');
 const REBUILD_KNOWLEDGE_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/rebuild_knowledge_from_json.py');
+const IMPORT_KP_MAPPING_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_kp_mapping_from_csv.py');
+const EXPORT_DIR = path.join(PROJECT_ROOT, 'data/exports');
 const upload = multer({ dest: path.join(PROJECT_ROOT, 'temp_uploads') });
 
 function normalizeTitle(title = '') {
@@ -209,11 +211,11 @@ router.get('/analysis', async (req, res) => {
                     COALESCE(q.score, 1) AS score,
                     CASE
                         WHEN trim(q.difficulty) != '' AND CAST(q.difficulty AS REAL) IS NOT NULL THEN CAST(q.difficulty AS REAL)
-                        -- 当前题库里没有真实的 difficulty 元数据，只能用题分做兜底分级。
-                        -- 采用更贴近试卷分值分布的阈值：3~4 分偏基础、5~6 分中档、7+ 分压轴。
-                        WHEN COALESCE(q.score, 1) <= 4 THEN 0.30
-                        WHEN COALESCE(q.score, 1) <= 6 THEN 0.60
-                        ELSE 0.85
+                        -- 当 difficulty 为空时，用题分做先底分级，映射到 1-8 量纲
+                        -- 低分题(<=4分)偏基础(2), 中分题(5-6分)中档(5), 高分题(>=7分)压轴(7)
+                        WHEN COALESCE(q.score, 1) <= 4 THEN 2
+                        WHEN COALESCE(q.score, 1) <= 6 THEN 5
+                        ELSE 7
                     END AS difficulty,
                     COALESCE(kp.category, kp.name, '未归类') AS topic
                 FROM questions q
@@ -227,17 +229,17 @@ router.get('/analysis', async (req, res) => {
                 year,
                 topic,
                 SUM(score) AS total_score,
-                SUM(score * difficulty) AS difficulty_subtotal,
+                SUM(score * difficulty / 8) AS difficulty_subtotal,
                 SUM(CASE
-                    WHEN difficulty < 0.45 THEN score
+                    WHEN difficulty <= 3 THEN score
                     ELSE 0
                 END) AS easy_score,
                 SUM(CASE
-                    WHEN difficulty >= 0.45 AND difficulty < 0.75 THEN score
+                    WHEN difficulty >= 4 AND difficulty <= 5 THEN score
                     ELSE 0
                 END) AS middle_score,
                 SUM(CASE
-                    WHEN difficulty >= 0.75 THEN score
+                    WHEN difficulty >= 6 THEN score
                     ELSE 0
                 END) AS hard_score
             FROM base
@@ -577,6 +579,90 @@ router.get('/source-answers', async (req, res) => {
     } catch (error) {
         console.error('获取原答案失败:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 预览 data/exports 下默认映射 CSV 文件状态
+router.get('/kp-mapping/exports', async (req, res) => {
+    try {
+        const result = await runPython(IMPORT_KP_MAPPING_SCRIPT, ['--preview-exports', '--json']);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr,
+            stdout: error.stdout
+        });
+    }
+});
+
+// 从 exports 目录批量导入映射 CSV
+router.post('/import-kp-mapping-csv', async (req, res) => {
+    const subject = req.body?.subject;
+    const reset = req.body?.reset === true || req.body?.reset === 'true';
+    const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true';
+    const minConfidence = req.body?.minConfidence;
+
+    try {
+        const args = ['--json'];
+        if (subject && ['chinese', 'math', 'english'].includes(subject)) {
+            args.push('--subject', subject);
+        } else {
+            args.push('--all-exports');
+        }
+        if (reset) args.push('--reset');
+        if (dryRun) args.push('--dry-run');
+        if (minConfidence !== undefined && minConfidence !== null && minConfidence !== '') {
+            args.push('--min-confidence', String(minConfidence));
+        }
+
+        const result = await runPython(IMPORT_KP_MAPPING_SCRIPT, args);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr,
+            stdout: error.stdout
+        });
+    }
+});
+
+// 上传单个映射 CSV 并导入
+router.post('/import-kp-mapping-csv/upload', upload.single('file'), async (req, res) => {
+    const file = req.file;
+    const reset = req.body?.reset === 'true' || req.body?.reset === true;
+    const dryRun = req.body?.dryRun === 'true' || req.body?.dryRun === true;
+    const subject = req.body?.subject;
+    const minConfidence = req.body?.minConfidence;
+
+    if (!file) {
+        return res.status(400).json({ success: false, error: 'No CSV file uploaded' });
+    }
+
+    try {
+        const args = ['--csv', file.path, '--json'];
+        if (reset) args.push('--reset');
+        if (dryRun) args.push('--dry-run');
+        if (subject && ['chinese', 'math', 'english'].includes(subject)) {
+            args.push('--subject', subject);
+        }
+        if (minConfidence !== undefined && minConfidence !== null && minConfidence !== '') {
+            args.push('--min-confidence', String(minConfidence));
+        }
+
+        const result = await runPython(IMPORT_KP_MAPPING_SCRIPT, args);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr,
+            stdout: error.stdout
+        });
+    } finally {
+        if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
     }
 });
 

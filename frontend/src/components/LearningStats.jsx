@@ -118,6 +118,15 @@ function LearningStats() {
         loadKnowledgeGraph();
         loadKnowledgePointCatalog();
         loadAnalysisData();
+
+        // 监听答题卡提交事件，刷新学习数据
+        const handleAnswerSheetSubmitted = () => {
+            loadHistory();
+            loadProfile();
+            loadWeakPoints();
+        };
+        window.addEventListener('answerSheetSubmitted', handleAnswerSheetSubmitted);
+        return () => window.removeEventListener('answerSheetSubmitted', handleAnswerSheetSubmitted);
     }, []);
 
     useEffect(() => {
@@ -253,8 +262,9 @@ function LearningStats() {
 
     const loadScoreTrendData = () => {
         const rawHistory = Array.isArray(historyData) ? historyData : [];
-        const localScores = [];
 
+        // 从 localStorage 读取 OCR 识别记录的成绩
+        const localScores = [];
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith('score_')) {
@@ -272,33 +282,32 @@ function LearningStats() {
             }
         }
 
-        const historyScores = rawHistory
-            .slice()
-            .reverse()
-            .map((item, index) => {
-                const score = Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1) * 100;
-                return {
-                    testNumber: index + 1,
-                    score,
-                    subject: 'history',
+        // 从答题卡历史记录按学科分组（后端现在返回 subject_id）
+        const historyBySubject = { chinese: [], math: [], english: [] };
+        rawHistory.slice().reverse().forEach((item, index) => {
+            const score = Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1) * 100;
+            const subjectId = item.subject_id || 'unknown';
+            if (historyBySubject[subjectId]) {
+                historyBySubject[subjectId].push({
+                    testNumber: historyBySubject[subjectId].length + 1,
+                    score: Math.round(score * 10) / 10,
+                    subject: subjectId,
                     timestamp: item.created_at || new Date().toISOString()
-                };
-            });
+                });
+            }
+        });
 
+        // 合并 localStorage 成绩和答题卡历史
         const scoresBySubject = {
-            chinese: localScores.filter(item => item.subject === 'chinese').length > 0
-                ? localScores.filter(item => item.subject === 'chinese')
-                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score + 2)) })),
-            math: localScores.filter(item => item.subject === 'math').length > 0
-                ? localScores.filter(item => item.subject === 'math')
-                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score + 1)) })),
-            english: localScores.filter(item => item.subject === 'english').length > 0
-                ? localScores.filter(item => item.subject === 'english')
-                : historyScores.map(item => ({ ...item, score: Math.min(100, Math.max(0, item.score - 1)) }))
+            chinese: [...historyBySubject.chinese, ...localScores.filter(item => item.subject === 'chinese')],
+            math: [...historyBySubject.math, ...localScores.filter(item => item.subject === 'math')],
+            english: [...historyBySubject.english, ...localScores.filter(item => item.subject === 'english')]
         };
 
         for (const subject of subjects) {
-            scoresBySubject[subject.key].sort((a, b) => a.testNumber - b.testNumber);
+            scoresBySubject[subject.key].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            // 重新编号
+            scoresBySubject[subject.key].forEach((item, idx) => { item.testNumber = idx + 1; });
         }
 
         const maxLen = Math.max(...Object.values(scoresBySubject).map(list => list.length));
@@ -370,27 +379,56 @@ function LearningStats() {
 
     const loadDailyStudyData = () => {
         const last7Days = [];
-        const historyMinutes = Array.isArray(historyData) ? historyData : [];
+        const historyRecords = Array.isArray(historyData) ? historyData : [];
 
         for (let i = 6; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
-            const dateKey = `study_${date.toISOString().split('T')[0]}`;
-            const storedMinutes = parseInt(localStorage.getItem(dateKey) || '0', 10);
+            // 使用本地日期字符串，避免 toISOString() 的 UTC 时区偏差
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            const dateKey = `study_${dateStr}`;
 
-            const derivedMinutes = historyMinutes
-                .filter(item => item.created_at && item.created_at.startsWith(date.toISOString().split('T')[0]))
-                .reduce((sum, item) => sum + Math.max(10, Math.round((Number(item.total_score || 0) / Math.max(Number(item.max_score || 1), 1)) * 40)), 0);
+            // 1. localStorage 中 StudyTimer 自动记录的学习时长（存储的是秒数，转为分钟）
+            const storedSeconds = parseInt(localStorage.getItem(dateKey) || '0', 10);
+            const storedMinutes = Math.round(storedSeconds / 60);
 
-            const minutes = storedMinutes || derivedMinutes || 0;
+            // 2. 从答题卡记录推算：答题数 × 2 分钟
+            // 注意：同一天可能提交多份答题卡，按提交次数计算（每份答题卡算一次完整答题）
+            let derivedMinutes = 0;
+            if (historyRecords.length > 0) {
+                const dayRecords = historyRecords.filter(item => {
+                    if (!item.created_at) return false;
+                    // created_at 可能是 "2026-06-06T..." 或 "2026-06-06 ..." 格式
+                    // 使用本地日期匹配，处理时区问题
+                    const recordDate = new Date(item.created_at);
+                    const recYyyy = recordDate.getFullYear();
+                    const recMm = String(recordDate.getMonth() + 1).padStart(2, '0');
+                    const recDd = String(recordDate.getDate()).padStart(2, '0');
+                    return `${recYyyy}-${recMm}-${recDd}` === dateStr;
+                });
+                for (const record of dayRecords) {
+                    const answers = typeof record.answers === 'object' ? record.answers : {};
+                    const questionCount = Object.keys(answers).length;
+                    derivedMinutes += questionCount * 2; // 每题约2分钟
+                }
+            }
+
+            // 手动记录 + 答题推算时长累加
+            const minutes = storedMinutes + derivedMinutes;
 
             last7Days.push({
                 date: `${date.getMonth() + 1}/${date.getDate()}`,
-                minutes: Math.max(0, minutes)
+                minutes: Math.max(0, storedMinutes + derivedMinutes),
+                storedMinutes: Math.max(0, storedMinutes),      // 手动记录的学习时长
+                derivedMinutes: Math.max(0, derivedMinutes),    // 答题卡推算的时长
             });
         }
 
-        setDailyStudyTime(last7Days.filter(item => item.minutes > 0));
+        // 显示所有7天（包括无数据的），方便用户看到哪些天没有学习
+        setDailyStudyTime(last7Days);
     };
 
     const loadKnowledgeHeatmap = () => {
@@ -500,8 +538,8 @@ function LearningStats() {
                     <LineChart data={scoreTrend}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="testNumber" label={{ value: '测验序号', position: 'insideBottom', offset: -5 }} />
-                        <YAxis domain={[0, 100]} label={{ value: '成绩（分）', angle: -90, position: 'insideLeft' }} />
-                        <Tooltip formatter={(value) => `${value}分`} />
+                        <YAxis domain={[0, 100]} label={{ value: '成绩（%）', angle: -90, position: 'insideLeft' }} />
+                        <Tooltip formatter={(value) => `${value}%`} />
                         <Legend />
                         {subjects.map(subject => (
                             <Line
@@ -592,8 +630,10 @@ function LearningStats() {
 
     const renderBarChart = () => {
         const totalMinutes = dailyStudyTime.reduce((sum, d) => sum + d.minutes, 0);
-        const avgMinutes = Math.round(totalMinutes / dailyStudyTime.length);
-        
+        const totalStored = dailyStudyTime.reduce((sum, d) => sum + (d.storedMinutes || 0), 0);
+        const totalDerived = dailyStudyTime.reduce((sum, d) => sum + (d.derivedMinutes || 0), 0);
+        const avgMinutes = dailyStudyTime.length > 0 ? Math.round(totalMinutes / dailyStudyTime.length) : 0;
+
         return (
             <div>
                 <div style={{
@@ -616,10 +656,15 @@ function LearningStats() {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" />
                         <YAxis label={{ value: '分钟', angle: -90, position: 'insideLeft' }} />
-                        <Tooltip formatter={(value) => `${value} 分钟`} />
-                        <Bar dataKey="minutes" fill="#52c41a" name="学习时长" radius={[4, 4, 0, 0]} />
+                        <Tooltip formatter={(value, name) => `${value} 分钟`} />
+                        <Legend />
+                        <Bar dataKey="storedMinutes" stackId="a" fill="#52c41a" name="在线学习时长(自动计时)" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="derivedMinutes" stackId="a" fill="#69c0ff" name="答题推算时长(每题≈2分钟)" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
+                <div style={{ fontSize: '12px', color: '#999', textAlign: 'center', marginTop: '8px' }}>
+                    💡 绿色为进入系统后自动累计的学习时长；浅蓝色为根据答题卡提交记录推算的时长（答题数 × 2分钟），仅供参考
+                </div>
             </div>
         );
     };

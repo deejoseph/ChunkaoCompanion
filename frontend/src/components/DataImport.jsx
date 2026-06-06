@@ -86,6 +86,14 @@ function DataImport() {
     const [knowledgeJsonPreview, setKnowledgeJsonPreview] = useState(null);
     const [questionBankJsonPreview, setQuestionBankJsonPreview] = useState(null);
     const [jsonPreviewError, setJsonPreviewError] = useState('');
+    const [mappingLoading, setMappingLoading] = useState(false);
+    const [mappingExportsPreview, setMappingExportsPreview] = useState(null);
+    const [mappingCsvFile, setMappingCsvFile] = useState(null);
+    const [mappingImportSubject, setMappingImportSubject] = useState('all');
+    const [resetMappingBeforeImport, setResetMappingBeforeImport] = useState(true);
+    const [mappingDryRun, setMappingDryRun] = useState(false);
+    const [examImportLoading, setExamImportLoading] = useState(false);
+    const [examGapsLoading, setExamGapsLoading] = useState(false);
 
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
@@ -119,6 +127,12 @@ function DataImport() {
         if (answerMarker.includes('ã€')) setAnswerMarker('【答案】');
         if (analysisMarker.includes('ã€')) setAnalysisMarker('【解析】');
     }, []);
+
+    useEffect(() => {
+        if (collectionMode === 'mapping') {
+            loadMappingExportsPreview();
+        }
+    }, [collectionMode]);
 
     const subjects = {
         chinese: { name: '语文' },
@@ -302,6 +316,49 @@ function DataImport() {
                 }}
             >
                 题库采集
+            </button>
+            <button
+                onClick={importAllExamBanks}
+                disabled={examImportLoading}
+                style={{
+                    padding: '8px 16px',
+                    background: examImportLoading ? '#ccc' : '#fa8c16',
+                    color: 'white',
+                    border: '1px solid #fa8c16',
+                    borderRadius: '6px',
+                    cursor: examImportLoading ? 'not-allowed' : 'pointer'
+                }}
+                title="递归导入 data/exams 下全部 qwen*.json，并补全 final_answer、score、difficulty"
+            >
+                {examImportLoading ? '导入中...' : '一键导入真题库'}
+            </button>
+            <button
+                onClick={completeExamGaps}
+                disabled={examGapsLoading || examImportLoading}
+                style={{
+                    padding: '8px 16px',
+                    background: examGapsLoading ? '#ccc' : '#722ed1',
+                    color: 'white',
+                    border: '1px solid #722ed1',
+                    borderRadius: '6px',
+                    cursor: examGapsLoading || examImportLoading ? 'not-allowed' : 'pointer'
+                }}
+                title="补全 final_answer/score/difficulty，并生成导入知识点映射（需本地 Ollama，千题约 20-40 分钟）"
+            >
+                {examGapsLoading ? '补全中...' : '缺失值补全'}
+            </button>
+            <button
+                onClick={() => setCollectionMode('mapping')}
+                style={{
+                    padding: '8px 16px',
+                    background: collectionMode === 'mapping' ? '#1890ff' : 'white',
+                    color: collectionMode === 'mapping' ? 'white' : '#333',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                }}
+            >
+                知识点题库映射
             </button>
         </div>
     );
@@ -555,6 +612,211 @@ ${knowledgeRawText.slice(0, 12000)}`;
             alert('导入失败: ' + (err.response?.data?.error || err.message || err));
         } finally {
             setParsing(false);
+        }
+    };
+
+    const formatExamImportResult = (data) => {
+        const lines = [
+            `扫描文件: ${data.scanned ?? 0}`,
+            `导入成功: ${data.imported ?? 0}`,
+            `导入失败: ${data.failed ?? 0}`,
+        ];
+        if (data.db) {
+            lines.push(`数据库题目: ${data.db.questions ?? 0}`);
+        }
+        if (data.enrich) {
+            lines.push(
+                `补全 final_answer: ${data.enrich.final_answer_updated ?? 0}`,
+                `补全 score: ${data.enrich.score_updated ?? 0}`,
+                `LLM 评估 difficulty: ${data.enrich.difficulty?.updated ?? 0}（规则兜底 ${data.enrich.difficulty?.fallback ?? 0}）`
+            );
+        }
+        if (data.audit) {
+            lines.push(
+                `仍缺失 final_answer: ${data.audit.missing_final_answer ?? 0}`,
+                `仍缺失 score: ${data.audit.missing_score ?? 0}`,
+                `仍缺失 difficulty: ${data.audit.missing_difficulty ?? 0}`
+            );
+        }
+        return lines.join('\n');
+    };
+
+    const importAllExamBanks = async () => {
+        if (!window.confirm(
+            '将递归导入 data/exams 下语文/数学/英语全部 qwen*.json 真题到 SQLite。\n\n'
+            + '导入后会自动：\n'
+            + '1. 用 JSON 中的 answer 填充 final_answer\n'
+            + '2. 用 JSON 中的 score 补全分值（缺失时按整卷/大题分配）\n'
+            + '3. 调用本地 Ollama 评估 difficulty（千题量级可能需 20-40 分钟，失败项会用规则兜底）\n\n'
+            + '确定继续？'
+        )) {
+            return;
+        }
+
+        setExamImportLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/banks/import-all-exams', {}, {
+                timeout: 0
+            });
+            if (response.data.success) {
+                alert(`真题库导入完成\n${formatExamImportResult(response.data)}`);
+                loadBanks();
+                if (collectionMode === 'mapping') {
+                    loadMappingExportsPreview();
+                }
+            } else {
+                alert('导入失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('一键导入真题库失败:', error);
+            alert('导入失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setExamImportLoading(false);
+        }
+    };
+
+    const formatCompleteGapsResult = (data) => {
+        const lines = [];
+        const enrich = data.enrich || {};
+        const diff = enrich.difficulty || {};
+        lines.push(
+            `补全 final_answer: ${enrich.final_answer_updated ?? 0}`,
+            `补全 score: ${enrich.score_updated ?? 0}`,
+            `难度评估: ${diff.updated ?? 0}（Ollama ${diff.llm_ok ?? 0}，规则兜底 ${diff.fallback ?? 0}）`
+        );
+        const mapping = data.mapping || {};
+        const dbSummary = mapping.db_summary || {};
+        if (dbSummary.link_count != null) {
+            lines.push(
+                `知识点映射: ${dbSummary.link_count ?? 0} 条`,
+                `已关联题目: ${dbSummary.linked_question_count ?? 0} / ${dbSummary.question_count ?? 0}`
+            );
+        }
+        const audit = data.audit || {};
+        lines.push(
+            `仍缺 final_answer: ${audit.missing_final_answer ?? 0}`,
+            `仍缺 score: ${audit.missing_score ?? 0}`,
+            `仍缺 difficulty: ${audit.missing_difficulty ?? 0}`
+        );
+        return lines.join('\n');
+    };
+
+    const completeExamGaps = async () => {
+        if (!window.confirm(
+            '将对当前 SQLite 真题库执行：\n\n'
+            + '1. 从 JSON 补全 final_answer、score\n'
+            + '2. 清空并用 Ollama 重新评估 difficulty（使用本机已安装模型）\n'
+            + '3. 生成并导入题目-知识点映射 CSV，并用规则补充未命中题\n\n'
+            + '约 1039 题 × Ollama 可能需 20-60 分钟，请保持 ollama serve 运行。\n\n'
+            + '确定继续？'
+        )) {
+            return;
+        }
+
+        setExamGapsLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/banks/complete-exam-gaps', {
+                forceDifficulty: true
+            }, { timeout: 0 });
+            if (response.data.success) {
+                alert(`缺失值补全完成\n${formatCompleteGapsResult(response.data)}`);
+                loadBanks();
+                loadMappingExportsPreview();
+            } else {
+                alert('补全失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('缺失值补全失败:', error);
+            alert('补全失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setExamGapsLoading(false);
+        }
+    };
+
+    const loadMappingExportsPreview = async () => {
+        try {
+            const response = await axios.get('http://localhost:3001/api/knowledge/kp-mapping/exports');
+            if (response.data.success) {
+                setMappingExportsPreview(response.data);
+            }
+        } catch (error) {
+            console.error('加载映射 CSV 预览失败:', error);
+        }
+    };
+
+    const formatMappingImportResult = (data) => {
+        const summary = data.summary || data;
+        return [
+            `写入关联: ${summary.links_inserted ?? data.links_inserted ?? 0}`,
+            `覆盖题目: ${summary.questions_touched ?? data.questions_touched ?? 0}`,
+            `跳过无效题目: ${summary.skipped_missing_question ?? data.skipped_missing_question ?? 0}`,
+            `跳过无效知识点: ${summary.skipped_missing_knowledge_point ?? data.skipped_missing_knowledge_point ?? 0}`,
+            summary.linked_questions_in_db
+                ? `库内当前: ${summary.linked_questions_in_db.total_links ?? 0} 条映射 / ${summary.linked_questions_in_db.distinct_questions ?? 0} 道题`
+                : null
+        ].filter(Boolean).join('\n');
+    };
+
+    const importMappingFromExports = async () => {
+        const subjectLabel = mappingImportSubject === 'all'
+            ? '语文、数学、英语三门'
+            : ({ chinese: '语文', math: '数学', english: '英语' }[mappingImportSubject] || mappingImportSubject);
+        const actionLabel = mappingDryRun ? '试运行校验' : '导入';
+        if (!window.confirm(`${actionLabel} data/exports 下的映射 CSV（${subjectLabel}）？${resetMappingBeforeImport && !mappingDryRun ? '\n将先清空对应学科的已有映射。' : ''}`)) {
+            return;
+        }
+
+        setMappingLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/knowledge/import-kp-mapping-csv', {
+                subject: mappingImportSubject === 'all' ? undefined : mappingImportSubject,
+                reset: resetMappingBeforeImport,
+                dryRun: mappingDryRun
+            });
+            if (response.data.success) {
+                alert(`${mappingDryRun ? '校验完成' : '映射导入完成'}\n${formatMappingImportResult(response.data)}`);
+                await loadMappingExportsPreview();
+            } else {
+                alert(`${actionLabel}失败: ` + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('导入映射 CSV 失败:', error);
+            alert(`${actionLabel}失败: ` + (error.response?.data?.error || error.message));
+        } finally {
+            setMappingLoading(false);
+        }
+    };
+
+    const importMappingCsvUpload = async () => {
+        if (!mappingCsvFile) {
+            alert('请先选择映射 CSV 文件');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', mappingCsvFile);
+        formData.append('reset', resetMappingBeforeImport ? 'true' : 'false');
+        formData.append('dryRun', mappingDryRun ? 'true' : 'false');
+        if (mappingImportSubject !== 'all') {
+            formData.append('subject', mappingImportSubject);
+        }
+
+        setMappingLoading(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/knowledge/import-kp-mapping-csv/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (response.data.success) {
+                alert(`${mappingDryRun ? '校验完成' : '映射导入完成'}\n${formatMappingImportResult(response.data)}`);
+                await loadMappingExportsPreview();
+            } else {
+                alert('导入失败: ' + (response.data.error || '未知错误'));
+            }
+        } catch (error) {
+            console.error('上传映射 CSV 失败:', error);
+            alert('导入失败: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setMappingLoading(false);
         }
     };
 
@@ -1943,6 +2205,178 @@ ${knowledgeRawText.slice(0, 12000)}`;
             </div>
         </div>
     );
+
+    const renderMappingCollectionPanel = () => {
+        const subjectLabels = { chinese: '语文', math: '数学', english: '英语' };
+        const exportFiles = mappingExportsPreview?.files || [];
+        const dbLinks = mappingExportsPreview?.db_links;
+        const dbQuestions = mappingExportsPreview?.db_questions;
+
+        return (
+            <div>
+                <div style={{
+                    background: '#f9f0ff',
+                    border: '1px solid #d3adf7',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px'
+                }}>
+                    <h3 style={{ marginTop: 0 }}>知识点题库映射</h3>
+                    <div style={{ color: '#555', lineHeight: 1.7 }}>
+                        将从 Ollama 生成的映射 CSV 写入 <code>question_knowledge_points</code> 表。
+                        默认读取 <code>data/exports/question_kp_chinese.csv</code>、
+                        <code>question_kp_math.csv</code>、<code>question_kp_english.csv</code>。
+                        CSV 需包含 <code>question_id</code> 与 <code>knowledge_point_id</code> 列；导入前请确保题库已入库，且题目 ID 与数据库一致。
+                    </div>
+                </div>
+
+                <div style={{
+                    border: '1px solid #722ed1',
+                    background: '#faf5ff',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                        <div>
+                            <div style={{ fontWeight: 'bold', color: '#531dab' }}>从 exports 目录导入</div>
+                            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                                目录：{mappingExportsPreview?.export_dir || 'data/exports'}
+                            </div>
+                        </div>
+                        <button
+                            onClick={loadMappingExportsPreview}
+                            disabled={mappingLoading}
+                            style={{ padding: '6px 12px', background: '#f0f0f0', border: '1px solid #d9d9d9', borderRadius: '4px', cursor: 'pointer' }}
+                        >
+                            刷新状态
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                        {['chinese', 'math', 'english'].map((item) => {
+                            const fileInfo = exportFiles.find((entry) => entry.subject === item) || { exists: false };
+                            return (
+                                <div key={item} style={{ background: 'white', border: '1px solid #eee', borderRadius: '8px', padding: '12px' }}>
+                                    <div style={{ fontWeight: 'bold' }}>{subjectLabels[item]}</div>
+                                    <div style={{ fontSize: '12px', color: fileInfo.exists ? '#389e0d' : '#cf1322', marginTop: '6px' }}>
+                                        {fileInfo.exists ? 'CSV 已就绪' : 'CSV 未找到'}
+                                    </div>
+                                    {fileInfo.exists && (
+                                        <div style={{ fontSize: '12px', color: '#666', marginTop: '6px', lineHeight: 1.6 }}>
+                                            行数: {fileInfo.row_count}<br />
+                                            映射条数: {fileInfo.link_count}<br />
+                                            题目数: {fileInfo.question_count}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                        <label>
+                            导入范围：
+                            <select
+                                value={mappingImportSubject}
+                                onChange={(e) => setMappingImportSubject(e.target.value)}
+                                style={{ marginLeft: '8px', padding: '4px 8px' }}
+                            >
+                                <option value="all">三门全部</option>
+                                <option value="chinese">仅语文</option>
+                                <option value="math">仅数学</option>
+                                <option value="english">仅英语</option>
+                            </select>
+                        </label>
+                        <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={resetMappingBeforeImport}
+                                onChange={(e) => setResetMappingBeforeImport(e.target.checked)}
+                            />
+                            导入前清空已有映射
+                        </label>
+                        <label style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <input
+                                type="checkbox"
+                                checked={mappingDryRun}
+                                onChange={(e) => setMappingDryRun(e.target.checked)}
+                            />
+                            仅试运行（不写入数据库）
+                        </label>
+                    </div>
+
+                    <button
+                        onClick={importMappingFromExports}
+                        disabled={mappingLoading}
+                        style={{
+                            padding: '8px 18px',
+                            background: mappingLoading ? '#ccc' : '#722ed1',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: mappingLoading ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        {mappingLoading ? '处理中...' : (mappingDryRun ? '校验 exports CSV' : '确认导入 exports CSV')}
+                    </button>
+                </div>
+
+                <div style={{
+                    border: '1px solid #b37feb',
+                    background: '#fff',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#531dab' }}>或上传单个 CSV</div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                            type="file"
+                            accept=".csv,text/csv"
+                            onChange={(e) => setMappingCsvFile(e.target.files?.[0] || null)}
+                        />
+                        <button
+                            onClick={importMappingCsvUpload}
+                            disabled={mappingLoading || !mappingCsvFile}
+                            style={{
+                                padding: '6px 16px',
+                                background: mappingCsvFile && !mappingLoading ? '#9254de' : '#ccc',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: mappingCsvFile && !mappingLoading ? 'pointer' : 'not-allowed'
+                            }}
+                        >
+                            {mappingDryRun ? '校验上传 CSV' : '导入上传 CSV'}
+                        </button>
+                    </div>
+                </div>
+
+                <div style={{
+                    background: '#fff7e6',
+                    border: '1px solid #ffd591',
+                    borderRadius: '8px',
+                    padding: '14px',
+                    color: '#8c5a00',
+                    lineHeight: 1.7
+                }}>
+                    当前数据库题目数：{dbQuestions ?? '-'}；已有映射：{dbLinks ? `${dbLinks.total_links} 条 / ${dbLinks.distinct_questions} 道题` : '-'}。
+                    若大量记录被跳过，通常是 CSV 中的 <code>question_id</code> 与 <code>questions</code> 表不一致，请先用【题库采集】导入真题后再执行映射。
+                </div>
+            </div>
+        );
+    };
+
+    if (collectionMode === 'mapping') {
+        return (
+            <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+                <h1>📥 新资料采集</h1>
+                {renderModeSwitcher()}
+                {renderMappingCollectionPanel()}
+            </div>
+        );
+    }
 
     if (collectionMode === 'knowledge') {
         return (

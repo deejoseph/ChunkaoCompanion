@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
@@ -8,6 +9,38 @@ const { open } = require('sqlite');
 // 答案库目录
 const BANKS_DIR = path.join(__dirname, '../../data/question_banks');
 const DB_PATH = path.join(__dirname, '../../data/knowledge/chunkao.db');
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'python';
+const IMPORT_ALL_EXAMS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_all_exam_banks.py');
+const COMPLETE_EXAM_GAPS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/complete_exam_gaps.py');
+
+function runPython(script, args = []) {
+    return new Promise((resolve, reject) => {
+        execFile(PYTHON, [script, ...args], {
+            cwd: PROJECT_ROOT,
+            maxBuffer: 50 * 1024 * 1024,
+            env: {
+                ...process.env,
+                PYTHONIOENCODING: 'utf-8'
+            }
+        }, (error, stdout, stderr) => {
+            if (error) {
+                error.stderr = stderr;
+                error.stdout = stdout;
+                reject(error);
+                return;
+            }
+
+            try {
+                resolve(JSON.parse(stdout));
+            } catch (parseError) {
+                parseError.stdout = stdout;
+                parseError.stderr = stderr;
+                reject(parseError);
+            }
+        });
+    });
+}
 
 // 确保目录存在
 if (!fs.existsSync(BANKS_DIR)) {
@@ -287,6 +320,61 @@ router.post('/upload-asset', upload.single('file'), async (req, res) => {
 });
 
 // 上传题库 JSON 并写入 SQLite，同时生成 JSON 备份。
+router.post('/import-all-exams', async (req, res) => {
+    const skipEnrich = req.body?.skipEnrich === true || req.body?.skipEnrich === 'true';
+    const skipLlm = req.body?.skipLlm === true || req.body?.skipLlm === 'true';
+    const enrichOnly = req.body?.enrichOnly === true || req.body?.enrichOnly === 'true';
+    const subject = req.body?.subject;
+
+    try {
+        const args = ['--json'];
+        if (skipEnrich) args.push('--skip-enrich');
+        if (skipLlm) args.push('--skip-llm');
+        if (enrichOnly) args.push('--enrich-only');
+        if (subject && ['chinese', 'math', 'english'].includes(subject)) {
+            args.push('--subject', subject);
+        }
+
+        const result = await runPython(IMPORT_ALL_EXAMS_SCRIPT, args);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr,
+            stdout: error.stdout
+        });
+    }
+});
+
+// 补全 final_answer/score/difficulty，并生成+导入知识点映射（耗时可长达数十分钟）
+router.post('/complete-exam-gaps', async (req, res) => {
+    const skipLlm = req.body?.skipLlm === true || req.body?.skipLlm === 'true';
+    const forceDifficulty = req.body?.forceDifficulty !== false && req.body?.forceDifficulty !== 'false';
+    const skipMapping = req.body?.skipMapping === true || req.body?.skipMapping === 'true';
+    const subject = req.body?.subject;
+
+    try {
+        const args = ['--json'];
+        if (skipLlm) args.push('--skip-llm');
+        if (forceDifficulty) args.push('--force-difficulty');
+        if (skipMapping) args.push('--skip-mapping');
+        if (subject && ['chinese', 'math', 'english'].includes(subject)) {
+            args.push('--subject', subject);
+        }
+
+        const result = await runPython(COMPLETE_EXAM_GAPS_SCRIPT, args);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stderr: error.stderr,
+            stdout: error.stdout
+        });
+    }
+});
+
 router.post('/import-json', upload.single('file'), async (req, res) => {
     const file = req.file;
     if (!file) return res.status(400).json({ success: false, error: 'No JSON file uploaded' });

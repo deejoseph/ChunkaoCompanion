@@ -20,6 +20,8 @@ SUBJECT_NAMES = {
     "english": "英语",
 }
 
+from ollama_models import DEFAULT_OLLAMA_MODEL
+
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 RULE_GROUPS = {
@@ -336,7 +338,7 @@ def main():
     parser.add_argument("--subject")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--use-ai", action="store_true", help="对未命中题目使用本地 Ollama 补充候选）")
-    parser.add_argument("--model", default="qwen2.5:14b", help="本地 Ollama 模型名")
+    parser.add_argument("--model", default=DEFAULT_OLLAMA_MODEL, help="本地 Ollama 模型名")
     args = parser.parse_args()
 
     conn = connect()

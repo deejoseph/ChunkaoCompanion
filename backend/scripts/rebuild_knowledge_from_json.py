@@ -47,6 +47,30 @@ def compact_json(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def extract_knowledge_point_candidates(payload):
+    """
+    只采集专题 JSON 的核心知识点：
+    - category = 顶层字段 '专题'
+    - name = 命题分析 中的 '高频考查内容'
+    """
+    topic_title = str(payload.get("专题") or "").strip()
+    analysis = payload.get("命题分析") if isinstance(payload.get("命题分析"), dict) else {}
+    high_freq = analysis.get("高频考查内容", [])
+
+    if not isinstance(high_freq, list):
+        return []
+
+    candidates = []
+    seen = set()
+    for item in high_freq:
+        name = str(item).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        candidates.append({"name": name, "category": topic_title})
+    return candidates
+
+
 def connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -335,7 +359,7 @@ def insert_string_leaf(conn, *, subject, version, topic_id, parent_id, topic_tit
     title = str(value).strip()
     if not title:
         return None
-    node_id = insert_node(
+    return insert_node(
         conn,
         subject=subject,
         version=version,
@@ -348,17 +372,6 @@ def insert_string_leaf(conn, *, subject, version, topic_id, parent_id, topic_tit
         sort_order=sort_order,
         now=now,
     )
-    upsert_knowledge_point(
-        conn,
-        subject=subject,
-        topic_id=topic_id,
-        name=title,
-        category=topic_title,
-        description=f"{topic_title} / {node_type}",
-        now=now,
-        confidence=0.95,
-    )
-    return node_id
 
 
 def insert_named_group(conn, *, subject, version, topic_id, parent_id, topic_title, group_name, values, node_type, child_type, source_file_id, sort_order, now):
@@ -374,16 +387,6 @@ def insert_named_group(conn, *, subject, version, topic_id, parent_id, topic_tit
         source_file_id=source_file_id,
         sort_order=sort_order,
         now=now,
-    )
-    upsert_knowledge_point(
-        conn,
-        subject=subject,
-        topic_id=topic_id,
-        name=group_name,
-        category=topic_title,
-        description=f"{topic_title} / {node_type}",
-        now=now,
-        confidence=0.95,
     )
     if isinstance(values, list):
         for idx, value in enumerate(values, start=1):
@@ -474,6 +477,18 @@ def import_topic_payload(conn, *, subject, version, json_path, payload, course_n
             )
 
     point_count = 0
+    for candidate in extract_knowledge_point_candidates(payload):
+        upsert_knowledge_point(
+            conn,
+            subject=subject,
+            topic_id=topic_id,
+            name=candidate["name"],
+            category=candidate["category"] or topic_title,
+            description=f"来自专题 JSON 的高频考查内容：{candidate['name']}",
+            now=now,
+            confidence=1.0,
+        )
+
     system = payload.get("考点体系", {})
     if isinstance(system, dict):
         for checkpoint_order, (checkpoint_name, checkpoint_data) in enumerate(system.items(), start=1):
@@ -491,16 +506,6 @@ def import_topic_payload(conn, *, subject, version, json_path, payload, course_n
                 source_file_id=json_source_id,
                 sort_order=checkpoint_order + 10,
                 now=now,
-            )
-            upsert_knowledge_point(
-                conn,
-                subject=subject,
-                topic_id=topic_id,
-                name=checkpoint_name,
-                category=topic_title,
-                description=compact_json(checkpoint_data),
-                now=now,
-                confidence=1.0,
             )
             point_count += 1
 

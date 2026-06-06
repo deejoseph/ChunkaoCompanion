@@ -148,10 +148,12 @@ router.get('/history', async (req, res) => {
     try {
         const db = await openDb();
         const sheets = await db.all(`
-            SELECT id, bank_id, total_score, max_score, wrong_count, answers, created_at, updated_at
-            FROM student_answer_sheets
-            WHERE student_id = ?
-            ORDER BY created_at DESC
+            SELECT s.id, s.bank_id, s.total_score, s.max_score, s.wrong_count, s.answers, s.created_at, s.updated_at,
+                   qb.subject_id, qb.title AS bank_title, qb.year
+            FROM student_answer_sheets s
+            JOIN question_banks qb ON qb.id = s.bank_id
+            WHERE s.student_id = ?
+            ORDER BY s.created_at DESC
         `, [studentId]);
         await db.close();
 
@@ -214,12 +216,27 @@ router.post('/rebuild-profile', async (req, res) => {
                 const userMark = answers[q.id];
                 const score = q.score || 0;
                 sheetMaxScore += score;
+                // 兼容旧格式 'correct'/'wrong' 和新格式（数字分值）
+                let earnedScore = 0;
                 if (userMark === 'correct') {
-                    sheetTotalScore += score;
+                    earnedScore = score;
                     sheetCorrect++;
                 } else if (userMark === 'wrong') {
+                    earnedScore = 0;
                     totalWrong++;
+                } else {
+                    // 新格式：数字分值
+                    earnedScore = Math.min(Math.max(0, parseFloat(userMark) || 0), score);
+                    if (earnedScore >= score) {
+                        sheetCorrect++;
+                    } else if (earnedScore === 0) {
+                        totalWrong++;
+                    } else {
+                        // 部分得分，算作半错
+                        totalWrong += 0.5;
+                    }
                 }
+                sheetTotalScore += earnedScore;
                 totalQuestions++;
             }
             totalCorrect += sheetCorrect;

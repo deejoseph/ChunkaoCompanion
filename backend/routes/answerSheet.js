@@ -53,7 +53,7 @@ router.get('/questions/:bankId', async (req, res) => {
     }
 });
 
-// 提交答题卡批改结果
+// 提交答题卡批改结果（分值模式：answers 为 { [questionId]: number }，学生自评得分）
 router.post('/submit', async (req, res) => {
     const { bankId, answers } = req.body;
     const studentId = req.user?.id || 'default_user';
@@ -68,16 +68,29 @@ router.post('/submit', async (req, res) => {
 
         let totalScore = 0;
         let maxScore = 0;
-        const wrongQuestionIds = [];
+        const wrongQuestionIds = []; // 得分不满分的题目视为错题
+        const partialQuestionIds = []; // 部分得分
 
         for (const q of questions) {
+            const qScore = q.score || 0;
+            maxScore += qScore;
+            // 兼容旧格式 'correct'/'wrong' 和新格式（数字分值）
             const userMark = answers[q.id];
-            const score = q.score || 0;
-            maxScore += score;
+            let earnedScore = 0;
             if (userMark === 'correct') {
-                totalScore += score;
+                earnedScore = qScore;
             } else if (userMark === 'wrong') {
+                earnedScore = 0;
+            } else {
+                // 新格式：数字分值
+                earnedScore = Math.min(Math.max(0, parseFloat(userMark) || 0), qScore);
+            }
+            totalScore += earnedScore;
+            if (earnedScore < qScore && qScore > 0) {
                 wrongQuestionIds.push(q.id);
+                if (earnedScore > 0) {
+                    partialQuestionIds.push(q.id);
+                }
             }
         }
 
@@ -127,7 +140,7 @@ router.post('/submit', async (req, res) => {
         const newTotalQuestions = profile.total_questions_answered + questions.length;
         const newTotalCorrect = profile.total_correct + (questions.length - wrongQuestionIds.length);
         const newTotalWrong = profile.total_wrong + wrongQuestionIds.length;
-        const newAvgScore = profile.total_questions_answered === 0 ? totalScore / questions.length : (profile.average_score * profile.total_questions_answered + totalScore) / newTotalQuestions;
+        const newAvgScore = maxScore > 0 ? totalScore / maxScore * 100 : 0;
 
         const weakKnowledgePoints = wrongMappings.reduce((acc, mapping) => {
             const existing = acc.find(item => item.id === mapping.knowledge_point_id);
@@ -174,9 +187,11 @@ router.post('/submit', async (req, res) => {
         res.json({
             success: true,
             sheetId,
-            totalScore,
+            totalScore: Math.round(totalScore * 10) / 10,
             maxScore,
             wrongCount: wrongQuestionIds.length,
+            partialCount: partialQuestionIds.length,
+            scoreRate: maxScore > 0 ? Math.round(totalScore / maxScore * 1000) / 10 : 0,
             topics: topicsList,
             wrongKnowledgePoints: uniqueWrongKnowledgePoints
         });

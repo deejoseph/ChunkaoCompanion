@@ -56,7 +56,15 @@ function AnswerSheetFloatingButton() {
                 answers
             });
             if (res.data.success) {
-                alert(`批改完成！得分：${res.data.totalScore}/${res.data.maxScore}\n错题数：${res.data.wrongCount}\n涉及专题：${res.data.topics.map(t => t.name).join(', ')}`);
+                const { totalScore, maxScore, wrongCount, partialCount, scoreRate } = res.data;
+                let msg = `批改完成！得分：${totalScore} / ${maxScore} (${scoreRate}%)`;
+                if (wrongCount > 0) {
+                    msg += `\n未满分题数：${wrongCount}${partialCount > 0 ? `（其中部分得分：${partialCount}题）` : ''}`;
+                }
+                if (res.data.topics && res.data.topics.length > 0) {
+                    msg += `\n涉及专题：${res.data.topics.map(t => t.name).join(', ')}`;
+                }
+                alert(msg);
                 setVisible(false);
                 // 可以触发一个全局事件更新学生画像
                 window.dispatchEvent(new CustomEvent('answerSheetSubmitted', { detail: res.data }));
@@ -100,7 +108,7 @@ function AnswerSheetFloatingButton() {
             {/* 弹窗 */}
             {visible && (
                 <AnswerSheetModal
-                    onClose={() => setVisible(false)}
+                    onClose={() => { setVisible(false); setQuestions([]); setSelectedBankId(''); }}
                     bankList={bankList}
                     selectedBankId={selectedBankId}
                     onBankChange={handleBankChange}
