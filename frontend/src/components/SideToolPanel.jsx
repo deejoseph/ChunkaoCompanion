@@ -1,4 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+    EXAM_DATE_CHANGED_EVENT,
+    EXAM_DATE_STORAGE_KEY,
+    daysUntilExam,
+    getExamDate,
+    parseExamDateLocal
+} from '../utils/examDate';
 
 function SideToolPanel({ isOpen, onClose }) {
     const [notes, setNotes] = useState(() => {
@@ -17,52 +24,35 @@ function SideToolPanel({ isOpen, onClose }) {
         localStorage.setItem('study_notes', notes);
     }, [notes]);
 
-    // 计算倒计时
+    const refreshCountdown = useCallback(() => {
+        const storedDate = getExamDate();
+        setExamDate(storedDate);
+        const diffDays = daysUntilExam(storedDate);
+        setDaysLeft(diffDays);
+        setIsUrgent(diffDays !== null && diffDays <= 30 && diffDays > 0);
+    }, []);
+
     useEffect(() => {
-        const calculateDaysLeft = () => {
-            const storedDate = localStorage.getItem('exam_date');
-            console.log('读取到的考试日期:', storedDate);
+        refreshCountdown();
 
-            if (!storedDate) {
-                console.log('未设置考试日期');
-                setDaysLeft(null);
-                setExamDate(null);
-                return;
-            }
-
-            setExamDate(storedDate);
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const targetDate = new Date(storedDate);
-            targetDate.setHours(0, 0, 0, 0);
-
-            console.log('今天:', today);
-            console.log('目标日期:', targetDate);
-
-            const diffTime = targetDate - today;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            console.log('剩余天数:', diffDays);
-
-            setDaysLeft(diffDays);
-            setIsUrgent(diffDays <= 30 && diffDays > 0);
-        };
-
-        calculateDaysLeft();
-
-        // 监听 storage 变化
         const handleStorageChange = (e) => {
-            console.log('storage 变化:', e.key, e.newValue);
-            if (e.key === 'exam_date') {
-                calculateDaysLeft();
+            if (e.key === EXAM_DATE_STORAGE_KEY) {
+                refreshCountdown();
             }
         };
+        const handleExamDateChanged = () => refreshCountdown();
 
         window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
-    }, []);
+        window.addEventListener(EXAM_DATE_CHANGED_EVENT, handleExamDateChanged);
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener(EXAM_DATE_CHANGED_EVENT, handleExamDateChanged);
+        };
+    }, [refreshCountdown]);
+
+    useEffect(() => {
+        if (isOpen) refreshCountdown();
+    }, [isOpen, refreshCountdown]);
 
     // 日历生成
     const getCalendarDays = () => {
@@ -232,16 +222,22 @@ function SideToolPanel({ isOpen, onClose }) {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
                     {getCalendarDays().map((day, idx) => {
-                        const isToday = day === new Date().getDate() && 
+                        const isToday = day === new Date().getDate() &&
                                        currentDate.getMonth() === new Date().getMonth() &&
                                        currentDate.getFullYear() === new Date().getFullYear();
+                        const examTarget = parseExamDateLocal(examDate || getExamDate());
+                        const isExamDay = day && examTarget &&
+                            day === examTarget.getDate() &&
+                            currentDate.getMonth() === examTarget.getMonth() &&
+                            currentDate.getFullYear() === examTarget.getFullYear();
                         return (
                             <div key={idx} style={{
                                 padding: '6px',
                                 fontSize: '12px',
                                 borderRadius: '4px',
-                                background: isToday ? '#1890ff' : 'transparent',
-                                color: isToday ? 'white' : '#333'
+                                background: isToday ? '#1890ff' : (isExamDay ? '#ff9800' : 'transparent'),
+                                color: (isToday || isExamDay) ? 'white' : '#333',
+                                fontWeight: isExamDay ? 'bold' : 'normal'
                             }}>
                                 {day || ''}
                             </div>

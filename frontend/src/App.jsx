@@ -14,6 +14,7 @@ import InternationalCourses from './components/InternationalCourses';
 import ModelNicknamePanel from './components/ModelNicknamePanel';
 
 import StudyTimer from './components/StudyTimer';
+import { getExamDate, setExamDate } from './utils/examDate';
 
 function App() {
   const [activeTab, setActiveTab] = useState('learn');
@@ -24,6 +25,7 @@ function App() {
   const [processLog, setProcessLog] = useState('');
   const [deleteOriginal, setDeleteOriginal] = useState(false);
   const [settingsTab, setSettingsTab] = useState('general');
+  const [examDate, setExamDateState] = useState(() => getExamDate());
   
   // 超级AI开关状态
   const [superAIEnabled, setSuperAIEnabled] = useState(() => {
@@ -453,7 +455,18 @@ function App() {
                         {/* 春考日期 */}
                         <div style={{ marginBottom: '24px' }}>
                             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
-                            <input type="date" defaultValue={localStorage.getItem('exam_date') || '2027-01-09'} onChange={(e) => localStorage.setItem('exam_date', e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
+                            <input
+                                type="date"
+                                value={examDate}
+                                onChange={(e) => {
+                                    setExamDateState(e.target.value);
+                                    setExamDate(e.target.value);
+                                }}
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+                            />
+                            <p style={{ fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: 0 }}>
+                                用于左侧工具栏「春考倒计时」；修改后立即生效
+                            </p>
                         </div>
 
                         {/* 🔥 超级AI入口 */}
