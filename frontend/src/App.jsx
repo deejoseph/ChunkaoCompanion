@@ -12,7 +12,7 @@ import DataImport from './components/DataImport';
 import SideToolPanel from './components/SideToolPanel';
 import InternationalCourses from './components/InternationalCourses';
 import ModelNicknamePanel from './components/ModelNicknamePanel';
-import AnswerSheetFloatingButton from './components/AnswerSheet/AnswerSheetFloatingButton';
+
 import StudyTimer from './components/StudyTimer';
 
 function App() {
@@ -611,7 +611,6 @@ function App() {
         </div>
     )}
     
-    <AnswerSheetFloatingButton />
     </div>
   );
 }

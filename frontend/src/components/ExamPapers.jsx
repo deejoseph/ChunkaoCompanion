@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import AnswerSheetFloatingButton from './AnswerSheet/AnswerSheetFloatingButton';
 
 const API_BASE = 'http://localhost:3001';  // 新增
 
@@ -376,6 +377,7 @@ function ExamPapers() {
                     </div>
                 )}
             </div>
+            <AnswerSheetFloatingButton />
         </div>
     );
 }

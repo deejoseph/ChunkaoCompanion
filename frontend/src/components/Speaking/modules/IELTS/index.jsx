@@ -50,6 +50,8 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const finalTranscriptRef = useRef('');
     const utteranceRef = useRef(null);
     const isProcessingRef = useRef(false);
+    const currentInterimRef = useRef('');   // 追踪快速模式中间识别结果
+    const sentencesRef = useRef([]);        // 追踪已确认的句子
 
     // 添加话题模态框
     const [showAddTopicModal, setShowAddTopicModal] = useState(false);
@@ -116,7 +118,20 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
         audioUrlRef.current = audioUrl;
 
         if (!options.transcribe) {
-            setRecognitionStatus('快速模式已完成录音，浏览器实时识别结果可直接修改后提交');
+            // 快速模式：录音结束后，将未 finalize 的中间识别结果合并到 fullTranscript
+            const interimText = currentInterimRef.current.trim();
+            if (interimText && !finalTranscriptRef.current.includes(interimText)) {
+                const existing = finalTranscriptRef.current || sentencesRef.current.join(' ');
+                const combined = existing ? `${existing} ${interimText}`.trim() : interimText;
+                setFullTranscript(combined);
+                finalTranscriptRef.current = combined;
+                const newSentences = [...sentencesRef.current, interimText];
+                setSentences(newSentences);
+                sentencesRef.current = newSentences;
+                setCurrentInterim('');
+                currentInterimRef.current = '';
+            }
+            setRecognitionStatus('快速模式已完成录音，识别结果可直接修改后提交');
             return;
         }
 
@@ -216,9 +231,11 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
                 const fullText = newSentences.join(' ');
                 setFullTranscript(fullText);
                 finalTranscriptRef.current = fullText;
+                sentencesRef.current = newSentences;
                 return newSentences;
             });
             setCurrentInterim('');
+            currentInterimRef.current = '';
             setRecognitionStatus('快速识别完成，可直接修改文本');
         }
     };
@@ -226,11 +243,25 @@ function IELTSSpeaking({ recognitionEngine, setRecognitionEngine }) {
     const handleTranscript = (text, isFinal) => {
         if (!isFinal) {
             setCurrentInterim(text);
+            currentInterimRef.current = text;
             setRecognitionStatus('浏览器实时识别中...');
             return;
         }
 
         if (text) {
+            const existing = sentencesRef.current.join(' ');
+            const combined = existing ? `${existing} ${text}`.trim() : text;
+            setFullTranscript(combined);
+            finalTranscriptRef.current = combined;
+            if (!sentencesRef.current.includes(text)) {
+                setSentences(prev => {
+                    const newSentences = [...prev, text];
+                    sentencesRef.current = newSentences;
+                    return newSentences;
+                });
+            }
+            setCurrentInterim('');
+            currentInterimRef.current = '';
             setRecognitionStatus('快速识别完成，可直接修改文本');
         }
     };
