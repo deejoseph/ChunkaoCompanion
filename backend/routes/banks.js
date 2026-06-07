@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
@@ -13,6 +13,11 @@ const PROJECT_ROOT = path.resolve(__dirname, '../..');
 const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'python';
 const IMPORT_ALL_EXAMS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import_all_exam_banks.py');
 const COMPLETE_EXAM_GAPS_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/complete_exam_gaps.py');
+const PROGRESS_LOG = path.join(PROJECT_ROOT, '.tmp', 'batch_import_progress.log');
+
+// 确保 .tmp 目录存在
+const TMP_DIR = path.join(PROJECT_ROOT, '.tmp');
+if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
 function runPython(script, args = []) {
     return new Promise((resolve, reject) => {
@@ -38,6 +43,74 @@ function runPython(script, args = []) {
                 parseError.stderr = stderr;
                 reject(parseError);
             }
+        });
+    });
+}
+
+// ─── 带实时进度日志的 Python 执行器 ────────────────────────────────────────
+// 使用 spawn 代替 execFile，实时捕获 stdout/stderr 并写入进度日志文件
+function runPythonWithProgress(script, args = [], label = 'batch') {
+    // 清空/初始化进度日志
+    fs.writeFileSync(PROGRESS_LOG, `[${new Date().toISOString()}] ${label} 开始...\n`, 'utf-8');
+
+    return new Promise((resolve, reject) => {
+        const child = spawn(PYTHON, [script, ...args], {
+            cwd: PROJECT_ROOT,
+            env: {
+                ...process.env,
+                PYTHONIOENCODING: 'utf-8',
+                PYTHONUNBUFFERED: '1'  // 强制 Python 禁用输出缓冲
+            }
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data) => {
+            const chunk = data.toString('utf-8');
+            stdout += chunk;
+            // 将每行非 JSON 的输出追加到进度日志（JSON 结果是最终输出，不写入进度）
+            chunk.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('{') && !trimmed.startsWith('"')) {
+                    fs.appendFileSync(PROGRESS_LOG, `[${new Date().toISOString()}] ${trimmed}\n`, 'utf-8');
+                }
+            });
+        });
+
+        child.stderr.on('data', (data) => {
+            const chunk = data.toString('utf-8');
+            stderr += chunk;
+            // stderr 也写入进度日志（Python 的 print 有时 flush 到 stderr）
+            chunk.split('\n').forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed) {
+                    fs.appendFileSync(PROGRESS_LOG, `[${new Date().toISOString()}] [stderr] ${trimmed}\n`, 'utf-8');
+                }
+            });
+        });
+
+        child.on('close', (code) => {
+            fs.appendFileSync(PROGRESS_LOG, `[${new Date().toISOString()}] ${label} 结束 (exit=${code})\n`, 'utf-8');
+            if (code !== 0) {
+                const error = new Error(`Python 进程退出码 ${code}`);
+                error.stderr = stderr;
+                error.stdout = stdout;
+                reject(error);
+                return;
+            }
+            try {
+                resolve(JSON.parse(stdout));
+            } catch (parseError) {
+                parseError.stdout = stdout;
+                parseError.stderr = stderr;
+                reject(parseError);
+            }
+        });
+
+        child.on('error', (err) => {
+            fs.appendFileSync(PROGRESS_LOG, `[${new Date().toISOString()}] ${label} 进程错误: ${err.message}\n`, 'utf-8');
+            reject(err);
         });
     });
 }
@@ -335,7 +408,7 @@ router.post('/import-all-exams', async (req, res) => {
             args.push('--subject', subject);
         }
 
-        const result = await runPython(IMPORT_ALL_EXAMS_SCRIPT, args);
+        const result = await runPythonWithProgress(IMPORT_ALL_EXAMS_SCRIPT, args, '一键导入真题库');
         res.json(result);
     } catch (error) {
         res.status(500).json({
@@ -363,7 +436,7 @@ router.post('/complete-exam-gaps', async (req, res) => {
             args.push('--subject', subject);
         }
 
-        const result = await runPython(COMPLETE_EXAM_GAPS_SCRIPT, args);
+        const result = await runPythonWithProgress(COMPLETE_EXAM_GAPS_SCRIPT, args, '缺失值补全');
         res.json(result);
     } catch (error) {
         res.status(500).json({
@@ -372,6 +445,27 @@ router.post('/complete-exam-gaps', async (req, res) => {
             stderr: error.stderr,
             stdout: error.stdout
         });
+    }
+});
+
+// 进度日志查询接口（前端轮询用）
+router.get('/batch-progress', (req, res) => {
+    try {
+        if (!fs.existsSync(PROGRESS_LOG)) {
+            return res.json({ running: false, lines: [] });
+        }
+        const content = fs.readFileSync(PROGRESS_LOG, 'utf-8');
+        const lines = content.split('\n').filter(Boolean);
+        // 判断是否还在运行：最后一行不包含“结束”或“进程错误”
+        const lastLine = lines[lines.length - 1] || '';
+        const finished = lastLine.includes('结束 (exit=') || lastLine.includes('进程错误');
+        res.json({
+            running: !finished,
+            lines: lines.slice(-50),  // 只返回最近 50 行
+            totalLines: lines.length
+        });
+    } catch (error) {
+        res.json({ running: false, lines: [], error: error.message });
     }
 });
 

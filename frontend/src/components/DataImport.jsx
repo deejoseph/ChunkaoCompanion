@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import TextCorrectionModal from './TextCorrectionModal';
 import TextEditorWithShortcuts from './DataImport/TextEditorWithShortcuts';
@@ -94,6 +94,36 @@ function DataImport() {
     const [mappingDryRun, setMappingDryRun] = useState(false);
     const [examImportLoading, setExamImportLoading] = useState(false);
     const [examGapsLoading, setExamGapsLoading] = useState(false);
+    const [batchProgress, setBatchProgress] = useState([]);  // 批量采集进度日志行
+    const progressTimerRef = useRef(null);  // 轮询定时器
+
+    // 开始轮询进度日志
+    const startProgressPolling = () => {
+        setBatchProgress([]);
+        if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+        progressTimerRef.current = setInterval(async () => {
+            try {
+                const res = await axios.get('http://localhost:3001/api/banks/batch-progress');
+                if (res.data.lines) {
+                    setBatchProgress(res.data.lines);
+                }
+                if (!res.data.running) {
+                    clearInterval(progressTimerRef.current);
+                    progressTimerRef.current = null;
+                }
+            } catch (e) {
+                // 忽略轮询错误
+            }
+        }, 2000);  // 每 2 秒轮询一次
+    };
+
+    // 停止轮询
+    const stopProgressPolling = () => {
+        if (progressTimerRef.current) {
+            clearInterval(progressTimerRef.current);
+            progressTimerRef.current = null;
+        }
+    };
 
     // ========== 根据学科+题型生成精准提示词 ==========
     const generatePrecisePrompt = (subject, questionType, specificType, topicName, content, questionNumber) => {
@@ -343,6 +373,7 @@ function DataImport() {
     };
 
     const renderModeSwitcher = () => (
+        <>
         <div style={{
             display: 'flex',
             gap: '8px',
@@ -422,6 +453,44 @@ function DataImport() {
                 知识点题库映射
             </button>
         </div>
+
+        {/* 批量采集进度面板 */}
+        {batchProgress.length > 0 && (
+            <div style={{
+                background: '#1e1e1e',
+                color: '#d4d4d4',
+                borderRadius: '6px',
+                padding: '12px',
+                marginTop: '8px',
+                maxHeight: '200px',
+                overflowY: 'auto',
+                fontFamily: 'Consolas, Monaco, monospace',
+                fontSize: '12px',
+                lineHeight: '1.6'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', borderBottom: '1px solid #444', paddingBottom: '4px' }}>
+                    <span style={{ color: '#569cd6' }}>
+                        {(examImportLoading || examGapsLoading) ? '⏳ 执行中...' : '✅ 已完成'}
+                    </span>
+                    <button
+                        onClick={() => setBatchProgress([])}
+                        style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '12px' }}
+                    >
+                        清除
+                    </button>
+                </div>
+                {batchProgress.map((line, i) => (
+                    <div key={i} style={{
+                        color: line.includes('❌') || line.includes('[stderr]') ? '#f44747' :
+                               line.includes('✅') ? '#4ec9b0' :
+                               line.includes('结束') ? '#dcdcaa' : '#d4d4d4'
+                    }}>
+                        {line.replace(/^\[.*?\]\s*/, '')}
+                    </div>
+                ))}
+            </div>
+        )}
+        </>
     );
 
     const extractKnowledgeText = async () => {
@@ -715,6 +784,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
         }
 
         setExamImportLoading(true);
+        startProgressPolling();  // 开始轮询进度
         try {
             const response = await axios.post('http://localhost:3001/api/banks/import-all-exams', {}, {
                 timeout: 0
@@ -733,6 +803,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
             alert('导入失败: ' + (error.response?.data?.error || error.message));
         } finally {
             setExamImportLoading(false);
+            stopProgressPolling();  // 停止轮询
         }
     };
 
@@ -775,6 +846,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
         }
 
         setExamGapsLoading(true);
+        startProgressPolling();  // 开始轮询进度
         try {
             const response = await axios.post('http://localhost:3001/api/banks/complete-exam-gaps', {
                 forceDifficulty: true
@@ -791,6 +863,7 @@ ${knowledgeRawText.slice(0, 12000)}`;
             alert('补全失败: ' + (error.response?.data?.error || error.message));
         } finally {
             setExamGapsLoading(false);
+            stopProgressPolling();  // 停止轮询
         }
     };
 
