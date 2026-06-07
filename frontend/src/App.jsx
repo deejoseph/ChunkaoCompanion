@@ -26,6 +26,12 @@ function App() {
   const [deleteOriginal, setDeleteOriginal] = useState(false);
   const [settingsTab, setSettingsTab] = useState('general');
   const [examDate, setExamDateState] = useState(() => getExamDate());
+
+  // 数据库备份状态
+  const [backupList, setBackupList] = useState([]);
+  const [dbInfo, setDbInfo] = useState(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
   
   // 超级AI开关状态
   const [superAIEnabled, setSuperAIEnabled] = useState(() => {
@@ -440,6 +446,25 @@ function App() {
                     >
                         🌐 云端 API 配置
                     </button>
+                    <button
+                        onClick={() => {
+                            setSettingsTab('database');
+                            // 加载数据库信息和备份列表
+                            axios.get('http://localhost:3001/api/settings/db-info').then(r => { if (r.data.success) setDbInfo(r.data.data); }).catch(() => {});
+                            axios.get('http://localhost:3001/api/settings/db-backup-list').then(r => { if (r.data.success) setBackupList(r.data.data || []); }).catch(() => {});
+                        }}
+                        style={{
+                            padding: '6px 16px',
+                            background: settingsTab === 'database' ? '#1890ff' : '#f0f0f0',
+                            color: settingsTab === 'database' ? 'white' : '#333',
+                            border: 'none',
+                            borderRadius: '20px',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        💾 数据库管理
+                    </button>
                 </div>
 
                 {/* 根据标签页显示不同内容 */}
@@ -613,10 +638,201 @@ function App() {
                     </>
                 )}
 
+                {settingsTab === 'database' && (
+                    <>
+                        {/* 数据库概况 */}
+                        <div style={{ marginBottom: '20px', padding: '16px', background: '#f6ffed', borderRadius: '8px', border: '1px solid #b7eb8f' }}>
+                            <h4 style={{ margin: '0 0 12px 0' }}>📊 数据库概况</h4>
+                            {dbInfo ? (
+                                <div style={{ fontSize: '13px', lineHeight: '1.8' }}>
+                                    <div><strong>文件大小：</strong>{dbInfo.sizeMB} MB</div>
+                                    <div><strong>数据表数量：</strong>{dbInfo.tableCount} 张</div>
+                                    <div><strong>最后修改：</strong>{new Date(dbInfo.lastModified).toLocaleString('zh-CN')}</div>
+                                    <details style={{ marginTop: '8px' }}>
+                                        <summary style={{ cursor: 'pointer', color: '#1890ff' }}>查看各表记录数</summary>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginTop: '8px', fontSize: '12px' }}>
+                                            {dbInfo.tables.map(t => (
+                                                <div key={t.name} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span>{t.name}</span>
+                                                    <span style={{ color: '#666' }}>{t.count} 条</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                </div>
+                            ) : (
+                                <div style={{ color: '#999' }}>加载中...</div>
+                            )}
+                        </div>
+
+                        {/* 备份操作 */}
+                        <div style={{ marginBottom: '20px', padding: '16px', background: '#e6f7ff', borderRadius: '8px', border: '1px solid #91d5ff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <h4 style={{ margin: 0 }}>💾 手动备份</h4>
+                                <button
+                                    onClick={async () => {
+                                        setBackupLoading(true);
+                                        try {
+                                            const res = await axios.post('http://localhost:3001/api/settings/db-backup', {});
+                                            if (res.data.success) {
+                                                alert(`✅ 备份成功！\n文件: ${res.data.data.filename}\n大小: ${res.data.data.sizeMB} MB`);
+                                                // 刷新列表
+                                                const listRes = await axios.get('http://localhost:3001/api/settings/db-backup-list');
+                                                if (listRes.data.success) setBackupList(listRes.data.data || []);
+                                            } else {
+                                                alert(`❌ 备份失败：${res.data.error}`);
+                                            }
+                                        } catch (e) {
+                                            alert(`❌ 备份失败：${e.message}`);
+                                        } finally {
+                                            setBackupLoading(false);
+                                        }
+                                    }}
+                                    disabled={backupLoading}
+                                    style={{
+                                        padding: '8px 20px',
+                                        background: backupLoading ? '#ccc' : '#1890ff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: backupLoading ? 'not-allowed' : 'pointer',
+                                        fontSize: '13px'
+                                    }}
+                                >
+                                    {backupLoading ? '⏳ 备份中...' : '📥 立即备份'}
+                                </button>
+                            </div>
+                            <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
+                                备份将保存到 <code>data/knowledge/backups/</code> 目录，可在误操作后恢复。
+                            </p>
+                        </div>
+
+                        {/* 备份列表 */}
+                        <div style={{ marginBottom: '20px' }}>
+                            <h4 style={{ marginBottom: '12px' }}>📁 备份历史 ({backupList.length})</h4>
+                            {backupList.length === 0 ? (
+                                <div style={{ color: '#999', fontSize: '13px', padding: '16px', textAlign: 'center', background: '#fafafa', borderRadius: '8px' }}>
+                                    暂无备份文件，建议先创建一个备份
+                                </div>
+                            ) : (
+                                <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+                                    {backupList.map((item, idx) => (
+                                        <div key={item.filename} style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '10px 12px',
+                                            background: idx % 2 === 0 ? '#fafafa' : 'white',
+                                            borderRadius: '6px',
+                                            marginBottom: '4px',
+                                            border: '1px solid #f0f0f0'
+                                        }}>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '13px', fontWeight: 'bold' }}>{item.filename}</div>
+                                                <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>
+                                                    {item.sizeMB} MB · {new Date(item.createdAt).toLocaleString('zh-CN')}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        const a = document.createElement('a');
+                                                        a.href = `http://localhost:3001/api/settings/db-backup-download/${encodeURIComponent(item.filename)}`;
+                                                        a.download = item.filename;
+                                                        a.click();
+                                                    }}
+                                                    style={{
+                                                        padding: '4px 10px',
+                                                        background: '#f0f0f0',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px'
+                                                    }}
+                                                    title="下载备份"
+                                                >
+                                                    ⬇️
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        if (!confirm(`确定要从 ${item.filename} 恢复数据库吗？\n\n恢复前会自动创建当前数据库的安全备份。`)) return;
+                                                        setRestoreLoading(true);
+                                                        try {
+                                                            const res = await axios.post('http://localhost:3001/api/settings/db-restore', { filename: item.filename });
+                                                            if (res.data.success) {
+                                                                alert(`✅ 恢复成功！\n\n安全备份: ${res.data.data.safetyBackup}\n\n⚠️ 建议刷新页面以加载恢复后的数据。`);
+                                                                // 刷新信息
+                                                                const infoRes = await axios.get('http://localhost:3001/api/settings/db-info');
+                                                                if (infoRes.data.success) setDbInfo(infoRes.data.data);
+                                                                const listRes = await axios.get('http://localhost:3001/api/settings/db-backup-list');
+                                                                if (listRes.data.success) setBackupList(listRes.data.data || []);
+                                                            } else {
+                                                                alert(`❌ 恢复失败：${res.data.error}`);
+                                                            }
+                                                        } catch (e) {
+                                                            alert(`❌ 恢复失败：${e.message}`);
+                                                        } finally {
+                                                            setRestoreLoading(false);
+                                                        }
+                                                    }}
+                                                    disabled={restoreLoading}
+                                                    style={{
+                                                        padding: '4px 10px',
+                                                        background: restoreLoading ? '#ccc' : '#faad14',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: restoreLoading ? 'not-allowed' : 'pointer',
+                                                        fontSize: '12px'
+                                                    }}
+                                                    title="恢复数据库"
+                                                >
+                                                    🔄 恢复
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        if (!confirm(`确定要删除备份 ${item.filename} 吗？`)) return;
+                                                        try {
+                                                            const res = await axios.delete(`http://localhost:3001/api/settings/db-backup/${encodeURIComponent(item.filename)}`);
+                                                            if (res.data.success) {
+                                                                setBackupList(prev => prev.filter(b => b.filename !== item.filename));
+                                                            } else {
+                                                                alert(`❌ 删除失败：${res.data.error}`);
+                                                            }
+                                                        } catch (e) {
+                                                            alert(`❌ 删除失败：${e.message}`);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        padding: '4px 10px',
+                                                        background: '#ff4d4f',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px'
+                                                    }}
+                                                    title="删除备份"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ fontSize: '12px', color: '#ff9800', padding: '8px', background: '#fff7e6', borderRadius: '6px' }}>
+                            ⚠️ 恢复数据库前会自动创建安全备份，防止恢复操作导致数据丢失。恢复后建议刷新页面。
+                        </div>
+                    </>
+                )}
+
                 {/* 按钮组 */}
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
                     <button onClick={() => setShowSettingsModal(false)} style={{ padding: '8px 20px', background: '#f0f0f0', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>关闭</button>
-                    {settingsTab !== 'nickname' && (
+                    {settingsTab !== 'nickname' && settingsTab !== 'database' && (
                         <button onClick={() => { saveApiConfig(); handleSaveModels(); handleSaveSuperAI(); }} style={{ padding: '8px 20px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>保存配置</button>
                     )}
                 </div>

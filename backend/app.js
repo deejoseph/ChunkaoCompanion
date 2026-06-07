@@ -12,6 +12,7 @@ const whisperRouter = require('./routes/whisper');
 const internationalRouter = require('./routes/international');
 const knowledgeRouter = require('./routes/knowledge');
 const answerSheetRouter = require('./routes/answerSheet');
+const settingsRouter = require('./routes/settings');
 
 const app = express();
 const PORT = 3001;
@@ -36,6 +37,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/banks', banksRouter);
 app.use('/api/config', apiConfigRouter);
 app.use('/api/student', studentRouter);
+app.use('/api/settings', settingsRouter);
 
 // 允许前端访问 analysis 目录下的图表图片
 app.use('/analysis', express.static(path.join(__dirname, '../data/analysis')));

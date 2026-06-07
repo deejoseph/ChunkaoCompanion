@@ -135,15 +135,11 @@ def create_graph_schema(conn):
 
 
 def clear_database(conn):
+    """仅清除知识库相关表（本脚本重建的表），不动题库数据"""
     tables = [
         "knowledge_edges",
         "knowledge_nodes",
         "exam_insights",
-        "question_parse_logs",
-        "question_assets",
-        "question_knowledge_points",
-        "questions",
-        "question_banks",
         "topic_knowledge_points",
         "knowledge_points",
         "source_files",
