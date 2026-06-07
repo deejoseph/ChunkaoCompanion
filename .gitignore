@@ -72,3 +72,6 @@ env/
 # Word 临时文件
 ~$*.docx
 ~$*.doc
+
+# Demo 文件
+demo/
