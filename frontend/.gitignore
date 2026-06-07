@@ -25,3 +25,6 @@ backup/
 *.njsproj
 *.sln
 *.sw?
+
+# Demo directory
+demo/
