@@ -392,7 +392,11 @@ function LearningStats() {
             const dateKey = `study_${dateStr}`;
 
             // 1. localStorage 中 StudyTimer 自动记录的学习时长（存储的是秒数，转为分钟）
-            const storedSeconds = parseInt(localStorage.getItem(dateKey) || '0', 10);
+            let storedSeconds = parseInt(localStorage.getItem(dateKey) || '0', 10);
+            // 校验：一天不可能超过 86400 秒（24小时），脏数据清零
+            if (isNaN(storedSeconds) || storedSeconds < 0 || storedSeconds > 86400) {
+                storedSeconds = 0;
+            }
             const storedMinutes = Math.round(storedSeconds / 60);
 
             // 2. 从答题卡记录推算：答题数 × 2 分钟
