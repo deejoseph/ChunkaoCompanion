@@ -18,6 +18,70 @@ const IMPORT_KP_MAPPING_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/import
 const EXPORT_DIR = path.join(PROJECT_ROOT, 'data/exports');
 const upload = multer({ dest: path.join(PROJECT_ROOT, 'temp_uploads') });
 
+// ─── 文件名编码修复 ────────────────────────────────────────────────────
+// multer 默认以 latin1 解码 originalname，中文文件名会变成乱码。
+// 此函数将 latin1 字节重新解释为 utf-8，还原中文文件名。
+function decodeFilename(originalName) {
+    if (!originalName) return originalName;
+    try {
+        return Buffer.from(originalName, 'latin1').toString('utf8');
+    } catch {
+        return originalName;
+    }
+}
+
+// ─── 知识点 JSON 双重防御校验 ────────────────────────────────────────────
+// 第一级：文件名必须匹配知识点文件命名规则（以"专题"开头）
+function validateKnowledgeFilename(originalName) {
+    const baseName = path.basename(originalName || '').replace(/\.json$/i, '');
+    if (!baseName.startsWith('专题')) {
+        return {
+            valid: false,
+            reason: `文件名校验失败：知识点文件必须以"专题"开头，当前文件名："${originalName}"。\n` +
+                    `请确认上传的是知识点 JSON（data/docs 下的"专题*.json"），而非题库 JSON（data/exams 下的"qwen*.json"）。`
+        };
+    }
+    return { valid: true };
+}
+
+// 第二级：JSON 结构必须符合知识点格式（包含 "专题" 字段 + 至少一个核心结构字段）
+function validateKnowledgeJsonStructure(json) {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) {
+        return { valid: false, reason: 'JSON 结构校验失败：知识点 JSON 必须是一个对象（Object），不能是数组或基本类型。' };
+    }
+    const hasZhuanti = typeof json['专题'] === 'string' && json['专题'].trim().length > 0;
+    if (!hasZhuanti) {
+        // 检查是否误传了题库 JSON
+        const looksLikeQuestionBank = !!(
+            json.exam_info || json.examInfo ||
+            (Array.isArray(json.sections) && json.sections.length > 0) ||
+            (Array.isArray(json.questions) && json.questions.length > 0)
+        );
+        if (looksLikeQuestionBank) {
+            return {
+                valid: false,
+                reason: 'JSON 结构校验失败：该文件看起来是题库 JSON（包含 exam_info/sections/questions），不是知识点 JSON。\n' +
+                        '请将此文件上传到"上传 JSON 生成题库"入口。'
+            };
+        }
+        return {
+            valid: false,
+            reason: 'JSON 结构校验失败：知识点 JSON 必须包含顶层字段 "专题"（字符串类型）。\n' +
+                    '合法示例：{ "专题": "名篇名句默写", "命题分析": {...}, "考点体系": {...} }'
+        };
+    }
+    const hasKaodianTixi = json['考点体系'] && typeof json['考点体系'] === 'object';
+    const hasMingtiFenxi = json['命题分析'] && typeof json['命题分析'] === 'object';
+    if (!hasKaodianTixi && !hasMingtiFenxi) {
+        return {
+            valid: false,
+            reason: 'JSON 结构校验失败：知识点 JSON 必须至少包含 "考点体系" 或 "命题分析" 之一。\n' +
+                    `当前仅有字段：${Object.keys(json).join(', ')}`
+        };
+    }
+    return { valid: true };
+}
+
 function normalizeTitle(title = '') {
     return String(title)
         .replace(/\.pdf$/i, '')
@@ -417,14 +481,34 @@ router.post('/import-json', upload.single('file'), async (req, res) => {
     }
 
     try {
+        // 修复中文文件名编码
+        file.originalname = decodeFilename(file.originalname);
+
+        // ── 第一级防御：文件名校验 ──
+        const filenameCheck = validateKnowledgeFilename(file.originalname);
+        if (!filenameCheck.valid) {
+            return res.status(400).json({ success: false, error: filenameCheck.reason });
+        }
+
         let preferredName = file.originalname || 'knowledge.json';
+        let uploadedJson;
         try {
-            const uploadedJson = JSON.parse(fs.readFileSync(file.path, 'utf-8'));
-            if (uploadedJson?.专题 && !String(preferredName).includes(uploadedJson.专题)) {
-                preferredName = `专题00 ${uploadedJson.专题}.json`;
-            }
+            uploadedJson = JSON.parse(fs.readFileSync(file.path, 'utf-8'));
         } catch (parseError) {
-            // Let the Python importer return the final JSON parse error.
+            return res.status(400).json({
+                success: false,
+                error: `JSON 解析失败：${parseError.message}。请确认上传的是合法 JSON 文件。`
+            });
+        }
+
+        // ── 第二级防御：JSON 结构校验 ──
+        const structureCheck = validateKnowledgeJsonStructure(uploadedJson);
+        if (!structureCheck.valid) {
+            return res.status(400).json({ success: false, error: structureCheck.reason });
+        }
+
+        if (uploadedJson?.专题 && !String(preferredName).includes(uploadedJson.专题)) {
+            preferredName = `专题00 ${uploadedJson.专题}.json`;
         }
 
         const safeOriginalName = String(preferredName)

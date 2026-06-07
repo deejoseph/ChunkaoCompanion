@@ -260,6 +260,32 @@ def titles_compatible(file_title, payload_title):
     return normalized_file in normalized_payload or normalized_payload in normalized_file
 
 
+def validate_knowledge_json_structure(payload):
+    """
+    知识点 JSON 结构防御校验。
+    合法结构：必须包含 "专题"(string) + 至少一个核心结构字段（"考点体系" 或 "命题分析"）。
+    返回 (ok: bool, reason: str|None)。
+    """
+    if not isinstance(payload, dict):
+        return False, "JSON 根节点必须是对象（dict），不能是数组或基本类型"
+    zhuanti = payload.get("专题")
+    if not isinstance(zhuanti, str) or not zhuanti.strip():
+        # 检查是否误传了题库 JSON
+        looks_like_bank = (
+            "exam_info" in payload or "examInfo" in payload
+            or (isinstance(payload.get("sections"), list) and len(payload["sections"]) > 0)
+            or (isinstance(payload.get("questions"), list) and len(payload["questions"]) > 0)
+        )
+        if looks_like_bank:
+            return False, "该文件看起来是题库 JSON（包含 exam_info/sections/questions），不是知识点 JSON"
+        return False, "缺少顶层字段 \"专题\"（string）"
+    has_kaodian = isinstance(payload.get("考点体系"), dict)
+    has_mingti  = isinstance(payload.get("命题分析"), dict)
+    if not has_kaodian and not has_mingti:
+        return False, f"必须至少包含 \"考点体系\" 或 \"命题分析\" 之一，当前字段：{', '.join(payload.keys())}"
+    return True, None
+
+
 def insert_topic_and_sources(conn, *, subject, version, json_path, payload, now):
     title = file_topic_title(json_path) or payload.get("专题") or json_path.stem
     code = topic_code(json_path.name)
@@ -629,6 +655,9 @@ def iter_json_files(subjects, version):
     for subject in subjects:
         subject_dir = DOCS_ROOT / subject / version
         for json_path in sorted(subject_dir.glob("*.json")):
+            # 第一级防御：只接受以"专题"开头的 JSON 文件
+            if not json_path.stem.startswith("专题"):
+                continue
             yield subject, json_path
 
 
@@ -668,6 +697,19 @@ def rebuild(subjects, version, backup=True):
         for subject, json_path in iter_json_files(subjects, version):
             with json_path.open("r", encoding="utf-8") as f:
                 payload = json.load(f)
+
+            # ── JSON 结构防御校验 ──
+            ok, reason = validate_knowledge_json_structure(payload)
+            if not ok:
+                skipped.append(
+                    {
+                        "subject": subject,
+                        "json_file": str(json_path.relative_to(PROJECT_ROOT)),
+                        "reason": f"JSON 结构防御校验失败：{reason}",
+                    }
+                )
+                continue
+
             file_title = file_topic_title(json_path)
             payload_title = payload.get("专题")
             if not titles_compatible(file_title, payload_title):
@@ -776,12 +818,24 @@ def import_json_files(file_specs, version, backup=True, clear_existing=False):
             )
 
         for subject, json_path in file_specs:
-            json_path = Path(json_path)
+            json_path = Path(json_path).resolve()  # 确保转为绝对路径，避免 relative_to 失败
             with json_path.open("r", encoding="utf-8") as f:
                 payload = json.load(f)
-
+        
+            # ── JSON 结构防御校验 ──
+            ok, reason = validate_knowledge_json_structure(payload)
+            if not ok:
+                skipped.append(
+                    {
+                        "subject": subject,
+                        "json_file": str(json_path),
+                        "reason": f"JSON 结构防御校验失败：{reason}",
+                    }
+                )
+                continue
+        
             file_title = file_topic_title(json_path)
-            payload_title = payload.get("专题")
+            payload_title = payload.get("\u4e13\u9898")
             if not titles_compatible(file_title, payload_title):
                 skipped.append(
                     {
@@ -815,6 +869,16 @@ def import_json_files(file_specs, version, backup=True, clear_existing=False):
                 )
             )
 
+        # 清理孤立知识点（先删除子表引用，避免外键约束失败）
+        conn.execute(
+            """
+            DELETE FROM student_wrong_knowledge
+            WHERE knowledge_point_id NOT IN (
+                SELECT id FROM knowledge_points
+                WHERE id IN (SELECT knowledge_point_id FROM topic_knowledge_points)
+            )
+            """
+        )
         conn.execute(
             """
             DELETE FROM knowledge_points

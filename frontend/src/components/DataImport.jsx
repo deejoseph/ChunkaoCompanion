@@ -208,6 +208,67 @@ function DataImport() {
         };
     };
 
+    // 知识点 JSON 双重防御校验（前端预览阶段）
+    const validateKnowledgeJson = (data, file) => {
+        const errors = [];
+        // 第一级：文件名校验
+        const baseName = file.name.replace(/\.json$/i, '');
+        if (!baseName.startsWith('专题')) {
+            errors.push(`文件名校验失败：知识点文件必须以"专题"开头，当前："${file.name}"。请使用 data/docs 下的"专题*.json"文件。`);
+        }
+        // 第二级：JSON 结构校验
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            errors.push('JSON 结构校验失败：知识点 JSON 必须是对象（Object），不能是数组或基本类型。');
+            return errors;
+        }
+        const hasZhuanti = typeof data['专题'] === 'string' && data['专题'].trim().length > 0;
+        if (!hasZhuanti) {
+            const looksLikeBank = !!(data.exam_info || data.examInfo ||
+                (Array.isArray(data.sections) && data.sections.length > 0) ||
+                (Array.isArray(data.questions) && data.questions.length > 0));
+            if (looksLikeBank) {
+                errors.push('JSON 结构校验失败：该文件看起来是题库 JSON（包含 exam_info/sections/questions），不是知识点 JSON。请将此文件上传到"上传 JSON 生成题库"入口。');
+            } else {
+                errors.push('JSON 结构校验失败：知识点 JSON 必须包含顶层字段 "专题"（字符串类型）。');
+            }
+        }
+        const hasStructure = (data['考点体系'] && typeof data['考点体系'] === 'object') ||
+                             (data['命题分析'] && typeof data['命题分析'] === 'object');
+        if (hasZhuanti && !hasStructure) {
+            errors.push(`JSON 结构校验失败：知识点 JSON 必须至少包含 "考点体系" 或 "命题分析" 之一。当前字段：${Object.keys(data).join(', ')}`);
+        }
+        return errors;
+    };
+
+    // 题库 JSON 双重防御校验（前端预览阶段）
+    const validateQuestionBankJson = (data, file) => {
+        const errors = [];
+        // 第一级：文件名校验
+        const baseName = file.name.replace(/\.json$/i, '');
+        if (!baseName.toLowerCase().startsWith('qwen')) {
+            errors.push(`文件名校验失败：题库文件必须以"qwen"开头，当前："${file.name}"。请使用 data/exams 下的"qwen*.json"文件。`);
+        }
+        // 第二级：JSON 结构校验
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            errors.push('JSON 结构校验失败：题库 JSON 必须是对象（Object），不能是数组或基本类型。');
+            return errors;
+        }
+        const looksLikeKnowledge = !!(typeof data['专题'] === 'string' && (data['考点体系'] || data['命题分析']));
+        if (looksLikeKnowledge) {
+            errors.push('JSON 结构校验失败：该文件看起来是知识点 JSON（包含 "专题"+"考点体系"/"命题分析"），不是题库 JSON。请将此文件上传到"上传 JSON 生成知识库"入口。');
+            return errors;
+        }
+        const bank = data.bank || data.questionBank || data;
+        const hasExamInfo = !!(bank.exam_info || bank.examInfo);
+        const hasSections = Array.isArray(bank.sections) && bank.sections.length > 0;
+        const hasQuestions = Array.isArray(bank.questions) && bank.questions.length > 0;
+        const hasItems = Array.isArray(bank.items) && bank.items.length > 0;
+        if (!hasExamInfo && !hasSections && !hasQuestions && !hasItems) {
+            errors.push(`JSON 结构校验失败：题库 JSON 必须包含 exam_info 字段，或 sections/questions/items 数组之一。当前字段：${Object.keys(data).join(', ')}`);
+        }
+        return errors;
+    };
+
     const summarizeQuestionBankJson = (data, selectedFile) => {
         const bank = data?.bank || data?.questionBank || data || {};
         const sections = Array.isArray(bank.sections) ? bank.sections : [];
@@ -828,6 +889,12 @@ ${knowledgeRawText.slice(0, 12000)}`;
 
         try {
             const parsed = await readJsonFile(selectedFile);
+            // 双重防御校验
+            const validationErrors = validateKnowledgeJson(parsed, selectedFile);
+            if (validationErrors.length > 0) {
+                setJsonPreviewError(validationErrors.join('\n'));
+                return;
+            }
             setKnowledgeJsonPreview(summarizeKnowledgeJson(parsed, selectedFile));
         } catch (error) {
             setJsonPreviewError(`知识库 JSON 解析失败：${error.message}`);
@@ -842,6 +909,12 @@ ${knowledgeRawText.slice(0, 12000)}`;
 
         try {
             const parsed = await readJsonFile(selectedFile);
+            // 双重防御校验
+            const validationErrors = validateQuestionBankJson(parsed, selectedFile);
+            if (validationErrors.length > 0) {
+                setJsonPreviewError(validationErrors.join('\n'));
+                return;
+            }
             setQuestionBankJsonPreview(summarizeQuestionBankJson(parsed, selectedFile));
         } catch (error) {
             setJsonPreviewError(`题库 JSON 解析失败：${error.message}`);

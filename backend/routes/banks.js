@@ -375,13 +375,95 @@ router.post('/complete-exam-gaps', async (req, res) => {
     }
 });
 
+// ─── 文件名编码修复 ────────────────────────────────────────────────────
+// multer 默认以 latin1 解码 originalname，中文文件名会变成乱码。
+// 此函数将 latin1 字节重新解释为 utf-8，还原中文文件名。
+function decodeFilename(originalName) {
+    if (!originalName) return originalName;
+    try {
+        return Buffer.from(originalName, 'latin1').toString('utf8');
+    } catch {
+        return originalName;
+    }
+}
+
+// ─── 题库 JSON 双重防御校验 ────────────────────────────────────────────
+// 第一级：文件名必须以 "qwen" 开头
+function validateQuestionBankFilename(originalName) {
+    const baseName = path.basename(originalName || '').replace(/\.json$/i, '');
+    if (!baseName.toLowerCase().startsWith('qwen')) {
+        return {
+            valid: false,
+            reason: `文件名校验失败：题库文件必须以"qwen"开头，当前文件名："${originalName}"。\n` +
+                    `请确认上传的是题库 JSON（data/exams 下的"qwen*.json"），而非知识点 JSON（data/docs 下的"专题*.json"）。`
+        };
+    }
+    return { valid: true };
+}
+
+// 第二级：JSON 结构必须符合题库格式（包含 exam_info 或 sections/questions 数组）
+function validateQuestionBankJsonStructure(json) {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) {
+        return { valid: false, reason: 'JSON 结构校验失败：题库 JSON 必须是一个对象（Object），不能是数组或基本类型。' };
+    }
+    // 检查是否误传了知识点 JSON
+    const looksLikeKnowledge = !!(
+        typeof json['专题'] === 'string' &&
+        (json['考点体系'] || json['命题分析'])
+    );
+    if (looksLikeKnowledge) {
+        return {
+            valid: false,
+            reason: 'JSON 结构校验失败：该文件看起来是知识点 JSON（包含 "专题"+"考点体系"/"命题分析"），不是题库 JSON。\n' +
+                    '请将此文件上传到"上传 JSON 生成知识库"入口。'
+        };
+    }
+    const bank = json.bank || json.questionBank || json;
+    const hasExamInfo = bank.exam_info || bank.examInfo;
+    const hasSections = Array.isArray(bank.sections) && bank.sections.length > 0;
+    const hasQuestions = Array.isArray(bank.questions) && bank.questions.length > 0;
+    const hasItems = Array.isArray(bank.items) && bank.items.length > 0;
+    if (!hasExamInfo && !hasSections && !hasQuestions && !hasItems) {
+        return {
+            valid: false,
+            reason: 'JSON 结构校验失败：题库 JSON 必须包含 exam_info 字段，或 sections/questions/items 数组之一。\n' +
+                    `当前仅有字段：${Object.keys(json).join(', ')}`
+        };
+    }
+    return { valid: true };
+}
+
 router.post('/import-json', upload.single('file'), async (req, res) => {
     const file = req.file;
     if (!file) return res.status(400).json({ success: false, error: 'No JSON file uploaded' });
 
     try {
-        const raw = fs.readFileSync(file.path, 'utf-8');
-        const payload = JSON.parse(raw);
+        // 修复中文文件名编码
+        file.originalname = decodeFilename(file.originalname);
+
+        // ── 第一级防御：文件名校验 ──
+        const filenameCheck = validateQuestionBankFilename(file.originalname);
+        if (!filenameCheck.valid) {
+            return res.status(400).json({ success: false, error: filenameCheck.reason });
+        }
+
+        let payload;
+        try {
+            const raw = fs.readFileSync(file.path, 'utf-8');
+            payload = JSON.parse(raw);
+        } catch (parseError) {
+            return res.status(400).json({
+                success: false,
+                error: `JSON 解析失败：${parseError.message}。请确认上传的是合法 JSON 文件。`
+            });
+        }
+
+        // ── 第二级防御：JSON 结构校验 ──
+        const structureCheck = validateQuestionBankJsonStructure(payload);
+        if (!structureCheck.valid) {
+            return res.status(400).json({ success: false, error: structureCheck.reason });
+        }
+
         const bank = normalizeQuestionBankPayload(payload, file.originalname);
 
         if (!bank.title || bank.questions.length === 0) {
