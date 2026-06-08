@@ -2569,7 +2569,10 @@ ${knowledgeRawText.slice(0, 12000)}`;
             {/* 工具栏 */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
                 <button
-                    onClick={() => setShowBankList(!showBankList)}
+                    onClick={() => {
+                        if (!showBankList) loadBanks();
+                        setShowBankList(!showBankList);
+                    }}
                     style={{ padding: '6px 16px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                 >
                     📚 题库列表
