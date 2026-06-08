@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
@@ -288,6 +289,62 @@ router.post('/rebuild-profile', async (req, res) => {
         console.error(error);
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+// ========== 学习报告生成 ==========
+const { execFile } = require('child_process');
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const PYTHON = process.env.PYTHON_PATH || process.env.WHISPER_PYTHON_PATH || 'python';
+const REPORT_SCRIPT = path.join(PROJECT_ROOT, 'backend/scripts/generate_report.py');
+
+/**
+ * 生成学习报告
+ * GET /api/student/report?days=7&format=json
+ */
+router.get('/report', (req, res) => {
+    const days = parseInt(req.query.days) || 7;
+    const format = req.query.format || 'json';
+
+    const args = ['--days', String(days), '--format', format];
+
+    execFile(PYTHON, [REPORT_SCRIPT, ...args], {
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+        timeout: 30000
+    }, (error, stdout, stderr) => {
+        if (error) {
+            console.error('报告生成失败:', stderr || error.message);
+            return res.status(500).json({ success: false, error: stderr || error.message });
+        }
+
+        if (format === 'json') {
+            // 从 stdout 提取 JSON（跳过第一行“报告已生成”提示）
+            const jsonStart = stdout.indexOf('{');
+            if (jsonStart === -1) {
+                return res.status(500).json({ success: false, error: '无法解析报告输出' });
+            }
+            try {
+                const data = JSON.parse(stdout.slice(jsonStart));
+                res.json({ success: true, data });
+            } catch (e) {
+                res.status(500).json({ success: false, error: 'JSON 解析失败: ' + e.message });
+            }
+        } else {
+            // markdown/html: 读取生成的文件
+            const match = stdout.match(/报告已生成[：:](.+)/);
+            if (match && match[1]) {
+                const filePath = match[1].trim();
+                try {
+                    const content = fs.readFileSync(filePath, 'utf-8');
+                    res.json({ success: true, data: { content, filePath, format } });
+                } catch (e) {
+                    res.status(500).json({ success: false, error: '读取报告文件失败: ' + e.message });
+                }
+            } else {
+                res.status(500).json({ success: false, error: '无法定位生成的报告文件' });
+            }
+        }
+    });
 });
 
 module.exports = router;

@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 const router = express.Router();
 
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -229,6 +230,59 @@ router.get('/db-backup-download/:filename', (req, res) => {
         res.download(backupPath, sanitized);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * 发送报告邮件
+ * POST /api/settings/send-report
+ * body: { to, subject, html, smtp }
+ */
+router.post('/send-report', async (req, res) => {
+    try {
+        const { to, subject, html, smtp } = req.body;
+        if (!to || !html) {
+            return res.json({ success: false, error: '缺少收件人或报告内容' });
+        }
+
+        // SMTP 配置：优先用前端传入的，否则从环境变量读取
+        const smtpHost = (smtp && smtp.host) || process.env.SMTP_HOST || 'smtp.qq.com';
+        const smtpPort = parseInt((smtp && smtp.port) || process.env.SMTP_PORT || '465');
+        const smtpUser = (smtp && smtp.user) || process.env.SMTP_USER || '';
+        const smtpPass = (smtp && smtp.pass) || process.env.SMTP_PASS || '';
+
+        if (!smtpUser || !smtpPass) {
+            return res.json({
+                success: false,
+                error: '邮件服务未配置。请在【设置】中填写 SMTP 配置。'
+            });
+        }
+
+        const transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: { user: smtpUser, pass: smtpPass }
+        });
+
+        const mailOptions = {
+            from: `"Chunkao Companion" <${smtpUser}>`,
+            to: to,
+            subject: subject || '学习周报',
+            html: html
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`✅ 报告邮件已发送至 ${to}，Message ID: ${info.messageId}`);
+
+        res.json({
+            success: true,
+            message: `报告已发送至 ${to}`,
+            messageId: info.messageId
+        });
+    } catch (error) {
+        console.error('发送邮件失败:', error.message);
+        res.json({ success: false, error: error.message });
     }
 });
 

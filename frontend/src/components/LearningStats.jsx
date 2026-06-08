@@ -34,6 +34,14 @@ function LearningStats() {
     const treeChartRef = useRef(null);
     const forceChartRef = useRef(null);    
 
+    // ========== 报告生成相关状态 ==========
+    const [reportData, setReportData] = useState(null);
+    const [reportLoading, setReportLoading] = useState(false);
+    const [reportDays, setReportDays] = useState(7);
+    const [reportFormat, setReportFormat] = useState('json');
+    const [reportHtml, setReportHtml] = useState('');
+    const [emailLoading, setEmailLoading] = useState(false);
+
     // ========== 命题分析图表相关状态 ==========
     const [analysisSubject, setAnalysisSubject] = useState('math');
     const subjectMap = {
@@ -1257,6 +1265,339 @@ function LearningStats() {
         );
     };
 
+    // ========== 学习报告渲染 ==========
+    const generateReport = async () => {
+        setReportLoading(true);
+        setReportData(null);
+        setReportHtml('');
+        try {
+            const res = await axios.get(`http://localhost:3001/api/student/report?days=${reportDays}&format=${reportFormat}`);
+            if (res.data.success) {
+                if (reportFormat === 'json') {
+                    setReportData(res.data.data);
+                } else {
+                    setReportHtml(res.data.data.content || '');
+                }
+            } else {
+                alert('❌ 报告生成失败：' + (res.data.error || '未知错误'));
+            }
+        } catch (e) {
+            alert('❌ 报告生成失败：' + e.message);
+        } finally {
+            setReportLoading(false);
+        }
+    };
+
+    const renderReport = () => {
+        const subjNames = { chinese: '语文', math: '数学', english: '英语' };
+        return (
+            <div>
+                <h3>📝 学习报告生成</h3>
+                <p style={{ color: '#666', marginBottom: '16px' }}>
+                    生成个性化学习周报/月报，包含成绩概览、学科表现、薄弱知识点等。
+                </p>
+
+                {/* 控制栏 */}
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+                    <select
+                        value={reportDays}
+                        onChange={(e) => setReportDays(Number(e.target.value))}
+                        style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d9d9d9' }}
+                    >
+                        <option value={7}>最近 7 天（周报）</option>
+                        <option value={30}>最近 30 天（月报）</option>
+                        <option value={14}>最近 14 天</option>
+                    </select>
+                    <select
+                        value={reportFormat}
+                        onChange={(e) => setReportFormat(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d9d9d9' }}
+                    >
+                        <option value="json">在线预览</option>
+                        <option value="html">HTML（可打印）</option>
+                        <option value="markdown">Markdown</option>
+                    </select>
+                    <button
+                        onClick={generateReport}
+                        disabled={reportLoading}
+                        style={{
+                            padding: '8px 24px',
+                            background: reportLoading ? '#ccc' : '#1890ff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: reportLoading ? 'not-allowed' : 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        {reportLoading ? '⏳ 生成中...' : '📊 生成报告'}
+                    </button>
+                    {(reportData || reportHtml) && (
+                        <button
+                            onClick={async () => {
+                                const parentEmail = localStorage.getItem('parent_email');
+                                if (!parentEmail) {
+                                    alert('请先在【设置 → 通用设置】中填写家长邮箱');
+                                    return;
+                                }
+                                const smtpUser = localStorage.getItem('smtp_user');
+                                const smtpPass = localStorage.getItem('smtp_pass');
+                                if (!smtpUser || !smtpPass) {
+                                    alert('请先在【设置 → 通用设置】中填写邮件服务器配置（SMTP）');
+                                    return;
+                                }
+                                if (!confirm(`确定要发送报告到 ${parentEmail} 吗？`)) return;
+                                setEmailLoading(true);
+                                try {
+                                    // 先生成 HTML 版本用于邮件发送
+                                    let htmlContent = '';
+                                    if (reportHtml && reportFormat === 'html') {
+                                        htmlContent = reportHtml;
+                                    } else {
+                                        const htmlRes = await axios.get(`http://localhost:3001/api/student/report?days=${reportDays}&format=html`);
+                                        htmlContent = htmlRes.data?.data?.content || '';
+                                    }
+                                    if (!htmlContent) {
+                                        alert('❌ 无法生成报告内容');
+                                        return;
+                                    }
+                                    const res = await axios.post('http://localhost:3001/api/settings/send-report', {
+                                        to: parentEmail,
+                                        subject: `学习${reportDays <= 7 ? '周报' : '月报'} - ${new Date().toLocaleDateString('zh-CN')}`,
+                                        html: htmlContent,
+                                        smtp: {
+                                            host: localStorage.getItem('smtp_host') || 'smtp.qq.com',
+                                            port: localStorage.getItem('smtp_port') || '465',
+                                            user: localStorage.getItem('smtp_user') || '',
+                                            pass: localStorage.getItem('smtp_pass') || '',
+                                        }
+                                    });
+                                    if (res.data.success) {
+                                        alert(`✅ ${res.data.message}`);
+                                    } else {
+                                        alert(`❌ 发送失败：${res.data.error}`);
+                                    }
+                                } catch (e) {
+                                    alert(`❌ 发送失败：${e.message}`);
+                                } finally {
+                                    setEmailLoading(false);
+                                }
+                            }}
+                            disabled={emailLoading}
+                            style={{
+                                padding: '8px 24px',
+                                background: emailLoading ? '#ccc' : '#52c41a',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: emailLoading ? 'not-allowed' : 'pointer',
+                                fontSize: '14px',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            {emailLoading ? '⏳ 发送中...' : `📧 发送到 ${localStorage.getItem('parent_email') || '家长邮箱'}`}
+                        </button>
+                    )}
+                </div>
+
+                {/* JSON 在线预览 */}
+                {reportFormat === 'json' && reportData && (
+                    <div>
+                        {/* 概览卡片 */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                            {[
+                                { label: '完成试卷', value: reportData.sheets_count, unit: '套', color: '#1890ff' },
+                                { label: '平均得分率', value: reportData.avg_rate, unit: '%', color: reportData.avg_rate >= 60 ? '#52c41a' : '#ff4d4f' },
+                                { label: '预估学习时长', value: reportData.estimated_minutes, unit: '分钟', color: '#722ed1' },
+                                { label: '累计答题', value: reportData.profile?.total_answered || 0, unit: '题', color: '#fa8c16' },
+                            ].map((card, i) => (
+                                <div key={i} style={{ background: 'white', borderRadius: '8px', padding: '16px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: card.color }}>{card.value}<span style={{ fontSize: '14px', color: '#999' }}>{card.unit}</span></div>
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{card.label}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* 学科表现 */}
+                        {Object.keys(reportData.subject_stats || {}).length > 0 && (
+                            <div style={{ background: 'white', borderRadius: '8px', padding: '16px', marginBottom: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                <h4 style={{ margin: '0 0 12px 0' }}>📚 各学科表现</h4>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ background: '#fafafa' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>学科</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>做题次数</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>平均得分率</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>错题数</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(reportData.subject_stats).map(([subj, stat]) => (
+                                            <tr key={subj}>
+                                                <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', color: { chinese: '#52c41a', math: '#1890ff', english: '#fa8c16' }[subj] || '#333' }}>
+                                                    {subjNames[subj] || subj}
+                                                </td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>{stat.count} 次</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>{stat.avg_rate}%</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>{stat.wrong} 题</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {/* 每日学习记录 */}
+                        {reportData.daily_activity?.length > 0 && (
+                            <div style={{ background: 'white', borderRadius: '8px', padding: '16px', marginBottom: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                <h4 style={{ margin: '0 0 12px 0' }}>📅 每日学习记录</h4>
+                                <ResponsiveContainer width="100%" height={240}>
+                                    <ComposedChart data={reportData.daily_activity}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                                        <YAxis yAxisId="left" allowDecimals={false} label={{ value: '题数', angle: -90, position: 'insideLeft' }} />
+                                        <YAxis yAxisId="right" orientation="right" domain={[0, 100]} label={{ value: '正确率%', angle: 90, position: 'insideRight' }} />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Bar yAxisId="left" dataKey="correct" stackId="a" fill="#52c41a" name="正确" radius={[0, 0, 0, 0]} />
+                                        <Bar yAxisId="left" dataKey="wrong" stackId="a" fill="#ff4d4f" name="错误" radius={[4, 4, 0, 0]} />
+                                        <Line yAxisId="right" type="monotone" dataKey="avg_rate" stroke="#722ed1" strokeWidth={2} name="平均正确率%" dot={{ r: 4 }} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
+
+                        {/* 薄弱知识点 */}
+                        <div style={{ background: 'white', borderRadius: '8px', padding: '16px', marginBottom: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                            <h4 style={{ margin: '0 0 12px 0' }}>📉 薄弱知识点（掌握度 &lt; 60%）</h4>
+                            {reportData.weak_points?.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ background: '#fafafa' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>知识点</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>错误次数</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>掌握度</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.weak_points.map((wp, i) => (
+                                            <tr key={i}>
+                                                <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0' }}>{wp.name}</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>{wp.wrong_count} 次</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0', color: wp.accuracy < 40 ? '#ff4d4f' : '#faad14', fontWeight: 'bold' }}>
+                                                    {wp.accuracy}%
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div style={{ textAlign: 'center', color: '#52c41a', padding: '16px' }}>✅ 所有知识点掌握度 ≥ 60%，继续保持！</div>
+                            )}
+                        </div>
+
+                        {/* 试卷明细 */}
+                        {reportData.sheets?.length > 0 && (
+                            <div style={{ background: 'white', borderRadius: '8px', padding: '16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                                <h4 style={{ margin: '0 0 12px 0' }}>📝 试卷明细</h4>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ background: '#fafafa' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>日期</th>
+                                            <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid #e8e8e8' }}>试卷</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>作答</th>
+                                            <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #e8e8e8' }}>正确率</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {reportData.sheets.map((s, i) => (
+                                            <tr key={i}>
+                                                <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0', fontSize: '12px' }}>{s.date} {s.time}</td>
+                                                <td style={{ padding: '8px', borderBottom: '1px solid #f0f0f0', fontSize: '13px' }}>{s.bank_title}</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0', fontSize: '12px' }}>
+                                                    {s.attempted} 题（<span style={{ color: '#52c41a' }}>✅{s.correct}</span> <span style={{ color: '#ff4d4f' }}>❌{s.wrong}</span>）
+                                                </td>
+                                                <td style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', color: s.score_rate >= 60 ? '#52c41a' : s.score_rate >= 40 ? '#faad14' : '#ff4d4f' }}>
+                                                    {s.score_rate}%
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* HTML/Markdown 预览 */}
+                {reportFormat !== 'json' && reportHtml && (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '13px', color: '#666' }}>报告预览</span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                {reportFormat === 'html' && (
+                                    <button
+                                        onClick={() => {
+                                            const w = window.open('', '_blank');
+                                            w.document.write(reportHtml);
+                                            w.document.close();
+                                        }}
+                                        style={{ padding: '6px 12px', background: '#52c41a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                                    >
+                                        🖨️ 新窗口打开（可打印）
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => {
+                                        const blob = new Blob([reportHtml], { type: reportFormat === 'html' ? 'text/html' : 'text/markdown' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `学习报告_${reportDays}天.${reportFormat === 'html' ? 'html' : 'md'}`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                    }}
+                                    style={{ padding: '6px 12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                                >
+                                    ⬇️ 下载文件
+                                </button>
+                            </div>
+                        </div>
+                        {reportFormat === 'html' ? (
+                            <iframe
+                                srcDoc={reportHtml}
+                                style={{ width: '100%', height: '600px', border: '1px solid #e8e8e8', borderRadius: '8px' }}
+                                title="报告预览"
+                            />
+                        ) : (
+                            <pre style={{
+                                background: '#1e1e1e',
+                                color: '#d4d4d4',
+                                padding: '16px',
+                                borderRadius: '8px',
+                                overflow: 'auto',
+                                maxHeight: '500px',
+                                fontSize: '13px',
+                                lineHeight: '1.6',
+                                fontFamily: 'Consolas, Monaco, monospace'
+                            }}>
+                                {reportHtml}
+                            </pre>
+                        )}
+                    </div>
+                )}
+
+                {!reportData && !reportHtml && !reportLoading && (
+                    <div style={{ textAlign: 'center', color: '#999', padding: '60px 0' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '12px' }}>📝</div>
+                        <div>选择报告参数后点击“生成报告”按钮</div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     // 选项卡配置（新增 "命题分析"）
     const tabs = [
         { key: 'progress', label: '学习进度', icon: '📊' },
@@ -1265,7 +1606,8 @@ function LearningStats() {
         { key: 'time', label: '学习时长', icon: '⏰' },        
         { key: 'analysis', label: '命题分析', icon: '📉' },
         { key: 'profile', label: '学生画像', icon: '👤' },
-        { key: 'knowledge', label: '知识图谱', icon: '🧭' }
+        { key: 'knowledge', label: '知识图谱', icon: '🧭' },
+        { key: 'report', label: '学习报告', icon: '📝' }
     ];
 
     return (
@@ -1312,6 +1654,7 @@ function LearningStats() {
                 {activeTab === 'analysis' && renderAnalysisCharts()}
                 {activeTab === 'profile' && renderProfile()}
                 {activeTab === 'knowledge' && renderKnowledgeGraph()}
+                {activeTab === 'report' && renderReport()}
             </div>
         </div>
     );

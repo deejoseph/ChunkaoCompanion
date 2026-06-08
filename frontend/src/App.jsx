@@ -477,6 +477,80 @@ function App() {
                             <p style={{ fontSize: '12px', color: '#999', marginTop: '4px', marginBottom: 0 }}>学习报告将发送到此邮箱</p>
                         </div>
 
+                        {/* SMTP 邮件服务器配置 */}
+                        <div style={{ marginBottom: '24px', padding: '16px', background: '#f6f8fa', borderRadius: '8px', border: '1px solid #e8e8e8' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                <label style={{ fontWeight: 'bold', fontSize: '14px' }}>⚙️ 邮件服务器配置（SMTP）</label>
+                                <button
+                                    onClick={() => {
+                                        const saved = {
+                                            smtp_host: localStorage.getItem('smtp_host') || '',
+                                            smtp_port: localStorage.getItem('smtp_port') || '',
+                                            smtp_user: localStorage.getItem('smtp_user') || '',
+                                            smtp_pass: localStorage.getItem('smtp_pass') || '',
+                                        };
+                                        const testEmail = localStorage.getItem('parent_email') || '';
+                                        if (!testEmail) { alert('请先填写家长邮箱'); return; }
+                                        if (!saved.smtp_user || !saved.smtp_pass) { alert('请填写发件邮箱和密码'); return; }
+                                        alert('✅ 测试邮件功能暂未实现，请先填写完整配置后在【统计 → 学习报告】中尝试发送。');
+                                    }}
+                                    style={{ padding: '4px 12px', fontSize: '12px', background: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >📤 测试连接</button>
+                            </div>
+
+                            {/* 第一行：服务器地址 + 端口 */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>SMTP 服务器</label>
+                                    <input
+                                        type="text" placeholder="smtp.qq.com"
+                                        defaultValue={localStorage.getItem('smtp_host') || 'smtp.qq.com'}
+                                        onChange={(e) => localStorage.setItem('smtp_host', e.target.value)}
+                                        style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '13px' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>端口</label>
+                                    <input
+                                        type="number" placeholder="465"
+                                        defaultValue={localStorage.getItem('smtp_port') || '465'}
+                                        onChange={(e) => localStorage.setItem('smtp_port', e.target.value)}
+                                        style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '13px' }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 第二行：发件邮箱 */}
+                            <div style={{ marginBottom: '12px' }}>
+                                <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>发件邮箱（登录账号）</label>
+                                <input
+                                    type="email" placeholder="your@qq.com"
+                                    defaultValue={localStorage.getItem('smtp_user') || ''}
+                                    onChange={(e) => localStorage.setItem('smtp_user', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '13px' }}
+                                />
+                            </div>
+
+                            {/* 第三行：密码 / 授权码 */}
+                            <div style={{ marginBottom: '8px' }}>
+                                <label style={{ display: 'block', fontSize: '12px', color: '#666', marginBottom: '4px' }}>密码 / 授权码</label>
+                                <input
+                                    type="password" placeholder="QQ邮箱请使用授权码（非登录密码）"
+                                    defaultValue={localStorage.getItem('smtp_pass') || ''}
+                                    onChange={(e) => localStorage.setItem('smtp_pass', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 10px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box', fontSize: '13px' }}
+                                />
+                            </div>
+
+                            <div style={{ fontSize: '11px', color: '#999', lineHeight: '1.6' }}>
+                                <strong>常见 SMTP 配置：</strong><br />
+                                • QQ邮箱：smtp.qq.com / 465 / 开启 SMTP 后用授权码<br />
+                                • 163邮箱：smtp.163.com / 465 / 开启 SMTP 后用授权码<br />
+                                • Gmail：smtp.gmail.com / 465 / 应用专用密码<br />
+                                • Outlook：smtp-mail.outlook.com / 587
+                            </div>
+                        </div>
+
                         {/* 春考日期 */}
                         <div style={{ marginBottom: '24px' }}>
                             <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>📅 目标考试日期</label>
