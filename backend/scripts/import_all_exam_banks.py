@@ -472,15 +472,23 @@ def save_bank(conn, bank, write_json_backup=True):
     }
 
 
-def find_qwen_json_files(subject_filter=None):
+def find_qwen_json_files(subject_filter=None, source_dir=None):
     files = []
-    for subject in SUBJECT_DIRS:
-        if subject_filter and subject != subject_filter:
-            continue
-        subject_dir = EXAMS_ROOT / subject
-        if not subject_dir.exists():
-            continue
-        files.extend(subject_dir.rglob("qwen*.json"))
+    if source_dir:
+        source_path = Path(source_dir)
+        if source_path.exists():
+            if source_path.is_dir():
+                files.extend(source_path.rglob("qwen*.json"))
+            elif source_path.is_file() and source_path.name.lower().endswith('.json'):
+                files.append(source_path)
+    else:
+        for subject in SUBJECT_DIRS:
+            if subject_filter and subject != subject_filter:
+                continue
+            subject_dir = EXAMS_ROOT / subject
+            if not subject_dir.exists():
+                continue
+            files.extend(subject_dir.rglob("qwen*.json"))
 
     def sort_key(path):
         subject = infer_subject_from_path(path) or ""
@@ -537,6 +545,8 @@ def main():
     parser.add_argument("--skip-enrich", action="store_true", help="导入后跳过字段补全")
     parser.add_argument("--enrich-only", action="store_true", help="仅补全已有题目字段，不重新导入")
     parser.add_argument("--skip-llm", action="store_true", help="补全时不调用 Ollama 评估 difficulty")
+    parser.add_argument("--source-dir", help="从指定目录查找 qwen*.json 文件")
+    parser.add_argument("--json-file", action="append", help="指定一个要导入的 JSON 文件路径，可重复传递")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出结果")
     args = parser.parse_args()
 
@@ -564,9 +574,13 @@ def main():
             print("字段补全完成。", result["audit"])
         sys.exit(0)
 
-    files = find_qwen_json_files(args.subject)
+    if args.json_file:
+        files = [Path(p) for p in args.json_file if p]
+    else:
+        files = find_qwen_json_files(args.subject, args.source_dir)
     if not files:
-        result = {"success": False, "error": f"未找到 qwen*.json 文件: {EXAMS_ROOT}"}
+        source_hint = args.source_dir or EXAMS_ROOT
+        result = {"success": False, "error": f"未找到 qwen*.json 文件: {source_hint}"}
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(1)
 

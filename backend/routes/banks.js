@@ -393,11 +393,13 @@ router.post('/upload-asset', upload.single('file'), async (req, res) => {
 });
 
 // 上传题库 JSON 并写入 SQLite，同时生成 JSON 备份。
-router.post('/import-all-exams', async (req, res) => {
+router.post('/import-all-exams', upload.array('examFiles'), async (req, res) => {
     const skipEnrich = req.body?.skipEnrich === true || req.body?.skipEnrich === 'true';
     const skipLlm = req.body?.skipLlm === true || req.body?.skipLlm === 'true';
     const enrichOnly = req.body?.enrichOnly === true || req.body?.enrichOnly === 'true';
     const subject = req.body?.subject;
+    const sourceDir = req.body?.sourceDir;
+    const files = Array.isArray(req.files) ? req.files : [];
 
     try {
         const args = ['--json'];
@@ -406,6 +408,15 @@ router.post('/import-all-exams', async (req, res) => {
         if (enrichOnly) args.push('--enrich-only');
         if (subject && ['chinese', 'math', 'english'].includes(subject)) {
             args.push('--subject', subject);
+        }
+        if (sourceDir) {
+            args.push('--source-dir', String(sourceDir));
+        }
+        for (const file of files) {
+            const filePath = file.path;
+            if (filePath) {
+                args.push('--json-file', filePath);
+            }
         }
 
         const result = await runPythonWithProgress(IMPORT_ALL_EXAMS_SCRIPT, args, '一键导入真题库');

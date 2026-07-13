@@ -95,7 +95,39 @@ function DataImport() {
     const [examImportLoading, setExamImportLoading] = useState(false);
     const [examGapsLoading, setExamGapsLoading] = useState(false);
     const [batchProgress, setBatchProgress] = useState([]);  // 批量采集进度日志行
+    const [examImportFiles, setExamImportFiles] = useState([]);
+    const [customExamImportPath, setCustomExamImportPath] = useState('');
+    const [importAfterSelection, setImportAfterSelection] = useState(false);
+    const examFileInputRef = useRef(null);
     const progressTimerRef = useRef(null);  // 轮询定时器
+
+    const handleExamImportFileChange = (files) => {
+        const selected = Array.from(files || []);
+        const jsonFiles = selected.filter((file) => file.name.toLowerCase().endsWith('.json'));
+        setExamImportFiles(jsonFiles);
+        if (importAfterSelection) {
+            setImportAfterSelection(false);
+            if (jsonFiles.length > 0) {
+                importAllExamBanks();
+            }
+        }
+    };
+
+    const clearExamImportSelection = () => {
+        setExamImportFiles([]);
+        setCustomExamImportPath('');
+        setImportAfterSelection(false);
+        if (examFileInputRef.current) examFileInputRef.current.value = null;
+    };
+
+    const handleImportClick = () => {
+        if (!examImportFiles.length && !customExamImportPath) {
+            setImportAfterSelection(true);
+            examFileInputRef.current?.click();
+            return;
+        }
+        importAllExamBanks();
+    };
 
     // 开始轮询进度日志
     const startProgressPolling = () => {
@@ -410,7 +442,7 @@ function DataImport() {
                 题库采集
             </button>
             <button
-                onClick={importAllExamBanks}
+                onClick={handleImportClick}
                 disabled={examImportLoading}
                 style={{
                     padding: '8px 16px',
@@ -453,6 +485,50 @@ function DataImport() {
                 知识点题库映射
             </button>
         </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
+            <button
+                type="button"
+                onClick={() => examFileInputRef.current?.click()}
+                style={{ padding: '8px 16px', background: '#1890ff', color: 'white', border: '1px solid #1890ff', borderRadius: '6px', cursor: 'pointer' }}
+            >
+                选择 JSON 文件/文件夹
+            </button>
+            <input
+                ref={examFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                webkitdirectory="true"
+                directory="true"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => handleExamImportFileChange(e.target.files)}
+            />
+            <input
+                type="text"
+                value={customExamImportPath}
+                onChange={(e) => setCustomExamImportPath(e.target.value)}
+                placeholder="自定义路径，例如 D:\\data\\exams"
+                style={{ flex: '1 1 320px', minWidth: '220px', padding: '8px 10px', border: '1px solid #d9d9d9', borderRadius: '6px' }}
+            />
+            <button
+                type="button"
+                onClick={clearExamImportSelection}
+                style={{ padding: '8px 16px', background: '#f5222d', color: 'white', border: '1px solid #f5222d', borderRadius: '6px', cursor: 'pointer' }}
+            >
+                清除选择
+            </button>
+        </div>
+        {(examImportFiles.length > 0 || customExamImportPath) && (
+            <div style={{ marginBottom: '16px', color: '#333', fontSize: '13px' }}>
+                {examImportFiles.length > 0 && (
+                    <div>已选择 {examImportFiles.length} 个 JSON 文件{examImportFiles[0]?.webkitRelativePath ? `，根目录 ${examImportFiles[0].webkitRelativePath.split('/')[0]}` : ''}</div>
+                )}
+                {examImportFiles.length === 0 && customExamImportPath && (
+                    <div>自定义导入路径：{customExamImportPath}</div>
+                )}
+            </div>
+        )}
 
         {/* 批量采集进度面板 */}
         {batchProgress.length > 0 && (
@@ -772,13 +848,18 @@ ${knowledgeRawText.slice(0, 12000)}`;
     };
 
     const importAllExamBanks = async () => {
+        const sourceHint = examImportFiles.length > 0
+            ? `已选择 ${examImportFiles.length} 个 JSON 文件，优先导入这些文件。`
+            : customExamImportPath
+                ? `将导入自定义路径：${customExamImportPath}`
+                : '将递归导入 data/exams 下语文/数学/英语全部 qwen*.json 真题。';
         if (!window.confirm(
-            '将递归导入 data/exams 下语文/数学/英语全部 qwen*.json 真题到 SQLite。\n\n'
-            + '导入后会自动：\n'
-            + '1. 用 JSON 中的 answer 填充 final_answer\n'
-            + '2. 用 JSON 中的 score 补全分值（缺失时按整卷/大题分配）\n'
-            + '3. 调用本地 Ollama 评估 difficulty（千题量级可能需 20-40 分钟，失败项会用规则兜底）\n\n'
-            + '确定继续？'
+            `${sourceHint}\n\n` +
+            '导入后会自动：\n' +
+            '1. 用 JSON 中的 answer 填充 final_answer\n' +
+            '2. 用 JSON 中的 score 补全分值（缺失时按整卷/大题分配）\n' +
+            '3. 调用本地 Ollama 评估 difficulty（千题量级可能需 20-40 分钟，失败项会用规则兜底）\n\n' +
+            '确定继续？'
         )) {
             return;
         }
@@ -786,7 +867,14 @@ ${knowledgeRawText.slice(0, 12000)}`;
         setExamImportLoading(true);
         startProgressPolling();  // 开始轮询进度
         try {
-            const response = await axios.post('http://localhost:3001/api/banks/import-all-exams', {}, {
+            const formData = new FormData();
+            if (examImportFiles.length > 0) {
+                examImportFiles.forEach((file) => formData.append('examFiles', file));
+            }
+            if (customExamImportPath) {
+                formData.append('sourceDir', customExamImportPath);
+            }
+            const response = await axios.post('http://localhost:3001/api/banks/import-all-exams', formData, {
                 timeout: 0
             });
             if (response.data.success) {
